@@ -16,7 +16,8 @@ const (
 var DefaultNodeConfig = Config{
 	DataPath: DefaultDataDir(),
 
-	Name: p2p.DefaultNodeName,
+	Name:      p2p.DefaultNodeName,
+	ExtraData: "{}",
 
 	LogLevel: "info",
 
