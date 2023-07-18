@@ -80,6 +80,9 @@ type Server struct {
 	// Use common.MakeName to create a name that follows existing conventions.
 	Name string
 
+	// Extra data of the server
+	ExtraData string
+
 	// Bootstrap nodes are used to establish connectivity
 	// with the rest of the network.
 	BootstrapNodes []*discover.Node

@@ -171,6 +171,9 @@ type Net struct {
 	// Name sets the node name of this server.
 	Name string
 
+	// Node extra data, can be used to add description / affiliate code as JSON
+	ExtraData string
+
 	Seeders []string
 
 	// NodeDatabase is the path to the database containing the previously seen

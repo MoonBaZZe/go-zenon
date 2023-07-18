@@ -54,7 +54,8 @@ type Config struct {
 	WalletPath  string // default DataPath/wallet
 	GenesisFile string // GenesisFile is the absolute path to the genesis file
 
-	Name string
+	Name      string
+	ExtraData string
 
 	LogLevel string // "debug", "dbug" | "info" | "warn" | "error", "error" | "crit"
 
@@ -197,6 +198,7 @@ func (c *Config) makeNetConfig() *p2p.Net {
 		MaxPendingPeers:   c.Net.MaxPendingPeers,
 		MinConnectedPeers: c.Net.MinConnectedPeers,
 		Name:              fmt.Sprintf("%v %v", metadata.Version, c.Name),
+		ExtraData:         c.ExtraData,
 		Seeders:           c.Net.Seeders,
 		NodeDatabase:      networkDataDir,
 		ListenAddr:        c.Net.ListenHost,

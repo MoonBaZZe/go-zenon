@@ -125,3 +125,7 @@ func (api *StatsApi) NetworkInfo() (*NetworkInfoResponse, error) {
 func (api *StatsApi) SyncInfo() (*protocol.SyncInfo, error) {
 	return api.z.Broadcaster().SyncInfo(), nil
 }
+
+func (api *StatsApi) ExtraData() (string, error) {
+	return api.p2p.ExtraData, nil
+}

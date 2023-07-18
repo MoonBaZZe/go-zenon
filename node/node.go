@@ -83,6 +83,7 @@ func NewNode(conf *Config) (*Node, error) {
 	node.server = &p2p.Server{
 		PrivateKey:        netConfig.PrivateKey(),
 		Name:              netConfig.Name,
+		ExtraData:         netConfig.ExtraData,
 		MaxPeers:          netConfig.MaxPeers,
 		MinConnectedPeers: netConfig.MinConnectedPeers,
 		MaxPendingPeers:   netConfig.MaxPendingPeers,
