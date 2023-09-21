@@ -320,6 +320,9 @@ func (s *Supervisor) setBlockFields(block *nom.AccountBlock) {
 	if block.Version == 0 {
 		block.Version = 1
 	}
+	if block.Fee == nil {
+		block.Fee = big.NewInt(0)
+	}
 	switch block.BlockType {
 	case nom.BlockTypeUserSend, nom.BlockTypeContractSend:
 		if block.Amount == nil {

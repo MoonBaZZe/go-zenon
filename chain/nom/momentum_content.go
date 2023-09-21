@@ -48,6 +48,15 @@ func NewMomentumContent(blocks []*AccountBlock) MomentumContent {
 	return content
 }
 
+func NewMomentumContentFeeSporkActive(blocks []*AccountBlock) MomentumContent {
+	content := make([]*types.AccountHeader, len(blocks))
+	for i := range blocks {
+		header := blocks[i].Header()
+		content[i] = &header
+	}
+	return content
+}
+
 func AccountBlockHeaderComparer(list []*types.AccountHeader) func(a, b int) bool {
 	return func(a, b int) bool {
 		return bytes.Compare(list[a].Bytes(), list[b].Bytes()) <= 0

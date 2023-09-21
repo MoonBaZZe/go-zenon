@@ -3,6 +3,8 @@ package chain
 import (
 	"bytes"
 	"fmt"
+	"github.com/zenon-network/go-zenon/vm/constants"
+	"sort"
 	"sync"
 
 	"github.com/inconshreveable/log15"
@@ -23,6 +25,8 @@ var (
 
 	// MaxAccountBlocksInMomentum takes into account batched account-blocks
 	MaxAccountBlocksInMomentum = 100
+	// todo standardize
+	MaxAccountBlocksSizeInMomentum = MaxAccountBlocksInMomentum * (constants.MaxDataLength + 400)
 )
 
 type Stable interface {
@@ -268,8 +272,12 @@ func (ap *accountPool) rebuild(detailed *nom.DetailedMomentum) error {
 	return nil
 }
 
-func (ap *accountPool) GetNewMomentumContent() []*nom.AccountBlock {
-	return ap.filterBlocksToCommit(ap.GetAllUncommittedAccountBlocks())
+func (ap *accountPool) GetNewMomentumContent(feeSporkActive bool) []*nom.AccountBlock {
+	uncomittedAccountBlocks := ap.GetAllUncommittedAccountBlocks()
+	if feeSporkActive {
+		return ap.filterBlocksToCommitFeeSporkActive(uncomittedAccountBlocks)
+	}
+	return ap.filterBlocksToCommit(uncomittedAccountBlocks)
 }
 func (ap *accountPool) filterBlocksToCommit(blocks []*nom.AccountBlock) []*nom.AccountBlock {
 	toCommit := make([]*nom.AccountBlock, 0, len(blocks))
@@ -283,6 +291,73 @@ func (ap *accountPool) filterBlocksToCommit(blocks []*nom.AccountBlock) []*nom.A
 			toCommit = append(toCommit, batch...)
 			batch = batch[:0]
 		}
+	}
+	return toCommit
+}
+
+func (ap *accountPool) filterBlocksToCommitFeeSporkActive(blocks []*nom.AccountBlock) []*nom.AccountBlock {
+	toCommit := make([]*nom.AccountBlock, 0, len(blocks))
+	// Priority in order
+	// embedded send blocks
+	// embedded receive blocks
+	// user receive blocks
+	// fee account blocks
+	// others
+	sort.SliceStable(blocks, func(i, j int) bool {
+		// maintain account blocks order
+		if blocks[i].Address.String() == blocks[j].Address.String() {
+			return blocks[i].Height < blocks[j].Height
+		}
+		fmt.Println(blocks[i].BlockType, blocks[j].BlockType)
+		switch blocks[i].BlockType {
+		case nom.BlockTypeContractSend:
+			return true
+		case nom.BlockTypeContractReceive:
+			switch blocks[j].BlockType {
+			case nom.BlockTypeContractSend:
+				return false
+			case nom.BlockTypeContractReceive:
+				return true
+			default:
+				return true
+			}
+		case nom.BlockTypeUserReceive:
+			switch blocks[j].BlockType {
+			case nom.BlockTypeContractSend, nom.BlockTypeContractReceive:
+				return false
+			default:
+				return true
+			}
+		case nom.BlockTypeUserSend:
+			switch blocks[j].BlockType {
+			case nom.BlockTypeContractSend, nom.BlockTypeContractReceive, nom.BlockTypeUserReceive:
+				return false
+			default:
+				if blocks[i].Fee.Cmp(blocks[j].Fee) == 0 {
+					if blocks[i].TotalPlasma == blocks[j].TotalPlasma {
+						return blocks[i].Hash.String() < blocks[j].Hash.String()
+					}
+					return blocks[i].TotalPlasma >= blocks[j].TotalPlasma
+				} else if blocks[i].Fee.Cmp(blocks[j].Fee) == -1 {
+					return false
+				}
+				return true
+			}
+		}
+		return true
+	})
+
+	totalSize := 0
+	for index := range blocks {
+		fmt.Printf("index: %d, block type: %d\n", index, blocks[index].BlockType)
+		abBytes, err := blocks[index].Serialize()
+		common.DealWithErr(err)
+
+		totalSize += len(abBytes)
+		if totalSize > MaxAccountBlocksSizeInMomentum {
+			break
+		}
+		toCommit = append(toCommit, blocks[index])
 	}
 	return toCommit
 }

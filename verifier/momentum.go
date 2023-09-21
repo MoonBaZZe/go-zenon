@@ -156,8 +156,23 @@ func (rmv *rawMomentumVerifier) data() error {
 	return nil
 }
 func (rmv *rawMomentumVerifier) content() error {
-	if len(rmv.momentum.Content) > chain.MaxAccountBlocksInMomentum {
-		return ErrMContentTooBig
+	feeSporkActive, err := rmv.momentumStore.IsSporkActive(types.FeeSpork)
+	common.DealWithErr(err)
+
+	if feeSporkActive {
+		totalSize := 0
+		for _, block := range rmv.accountBlocks {
+			abBytes, err := block.Serialize()
+			common.DealWithErr(err)
+			totalSize += len(abBytes)
+		}
+		if totalSize > chain.MaxAccountBlocksSizeInMomentum {
+			return ErrMContentTooBigInSize
+		}
+	} else {
+		if len(rmv.momentum.Content) > chain.MaxAccountBlocksInMomentum {
+			return ErrMContentTooBig
+		}
 	}
 	blocksLookup := make(map[types.HashHeight]*nom.AccountBlock)
 

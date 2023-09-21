@@ -1,6 +1,7 @@
 syntax = "proto3";
 package nom;
 
+option go_package="github.com/zenon-network/go-zenon/chain/nom";
 import "common/types/protobuf.proto";
 
 message AccountBlockProto {
@@ -33,6 +34,8 @@ message AccountBlockProto {
 
   bytes publicKey = 22;
   bytes signature = 23;
+
+  bytes fee = 24;
 }
 
 message MomentumProto {

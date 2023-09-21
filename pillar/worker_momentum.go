@@ -2,6 +2,8 @@ package pillar
 
 import (
 	"github.com/zenon-network/go-zenon/chain/nom"
+	"github.com/zenon-network/go-zenon/common"
+	"github.com/zenon-network/go-zenon/common/types"
 	"github.com/zenon-network/go-zenon/consensus"
 )
 
@@ -10,11 +12,21 @@ func (w *worker) generateMomentum(e consensus.ProducerEvent) (*nom.MomentumTrans
 	defer insert.Unlock()
 
 	store := w.chain.GetFrontierMomentumStore()
-	blocks := w.chain.GetNewMomentumContent()
+
+	feeSporkActive, err := store.IsSporkActive(types.FeeSpork)
+	common.DealWithErr(err)
+	blocks := w.chain.GetNewMomentumContent(feeSporkActive)
 
 	previousMomentum, err := store.GetFrontierMomentum()
 	if err != nil {
 		return nil, err
+	}
+
+	var content nom.MomentumContent
+	if feeSporkActive {
+		content = nom.NewMomentumContentFeeSporkActive(blocks)
+	} else {
+		content = nom.NewMomentumContent(blocks)
 	}
 
 	m := &nom.Momentum{
@@ -22,7 +34,7 @@ func (w *worker) generateMomentum(e consensus.ProducerEvent) (*nom.MomentumTrans
 		PreviousHash:    previousMomentum.Hash,
 		Height:          previousMomentum.Height + 1,
 		TimestampUnix:   uint64(e.StartTime.Unix()),
-		Content:         nom.NewMomentumContent(blocks),
+		Content:         content,
 		Version:         uint64(1),
 	}
 	m.EnsureCache()

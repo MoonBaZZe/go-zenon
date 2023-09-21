@@ -78,6 +78,25 @@ func enoughFunds(context vm_context.AccountVmContext, block *nom.AccountBlock) b
 
 	balance, err := context.GetBalance(block.TokenStandard)
 	common.DealWithErr(err)
+
+	if context.IsFeeSporkEnforced() {
+		if block.Fee != nil && block.Fee.Sign() > 0 {
+			toSpend := big.NewInt(0).Set(block.Fee)
+			if block.TokenStandard.String() == types.ZnnTokenStandard.String() {
+				toSpend = toSpend.Add(toSpend, block.Amount)
+				if balance.Cmp(toSpend) == -1 {
+					return false
+				}
+			} else {
+				znnBalance, err := context.GetBalance(types.ZnnTokenStandard)
+				common.DealWithErr(err)
+				if znnBalance.Cmp(toSpend) == -1 {
+					return false
+				}
+			}
+		}
+	}
+
 	if balance.Cmp(block.Amount) == -1 {
 		return false
 	}
@@ -88,8 +107,11 @@ func enoughFunds(context vm_context.AccountVmContext, block *nom.AccountBlock) b
 // applyBlock is used to apply the block on top of the vm.context
 // After calling applyBlock vm.context.Changes() has all the changes necessary to create a nom.AccountBlockTransaction
 func (vm *VM) applyBlock(block *nom.AccountBlock) error {
-	if err := enoughPlasma(vm.context, block); err != nil {
-		return err
+	// We only check for plasma when the ab does not contain fee
+	if vm.context.IsFeeSporkEnforced() && block.Fee.Sign() == 0 {
+		if err := enoughPlasma(vm.context, block); err != nil {
+			return err
+		}
 	}
 
 	// In case vm will update some fields of block, make a copy of block.
@@ -135,6 +157,9 @@ func (vm *VM) applySend(block *nom.AccountBlock) error {
 	}
 
 	vm.context.SubBalance(&block.TokenStandard, block.Amount)
+	if vm.context.IsFeeSporkEnforced() && block.Fee != nil {
+		vm.context.SubBalance(&types.ZnnTokenStandard, block.Fee)
+	}
 
 	return nil
 }

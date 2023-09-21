@@ -2,6 +2,8 @@ package verifier
 
 import (
 	"fmt"
+	"github.com/zenon-network/go-zenon/vm/constants"
+	"math/big"
 
 	"github.com/pkg/errors"
 
@@ -211,6 +213,21 @@ func (abv *accountBlockVerifier) amounts() error {
 		if !abv.block.FromBlockHash.IsZero() {
 			return ErrABFromBlockHashMustBeZero
 		}
+
+		// todo works without checking spork?
+		if abv.block.Fee != nil {
+			if abv.block.Fee.Sign() == 1 && abv.block.Fee.Cmp(constants.MinFee) == -1 {
+				return ErrABFeeLessThanMin
+			}
+			if abv.block.Fee.Sign() == -1 {
+				return ErrABFeeNegative
+			}
+			if abv.block.Fee.BitLen() > 255 {
+				return ErrABFeeTooBig
+			}
+		} else {
+			abv.block.Fee = big.NewInt(0)
+		}
 	} else {
 		if abv.block.Amount != nil && abv.block.Amount.Sign() != 0 {
 			return ErrABAmountMustBeZero
@@ -221,9 +238,12 @@ func (abv *accountBlockVerifier) amounts() error {
 		if abv.block.ToAddress != types.ZeroAddress {
 			return ErrABToAddressMustBeZero
 		}
-
 		if abv.block.FromBlockHash.IsZero() {
 			return ErrABFromBlockHashMissing
+		}
+		// todo works without checking spork?
+		if abv.block.Fee != nil && abv.block.Fee.Sign() != 0 {
+			return ErrABFeeMustBeZero
 		}
 	}
 	return nil

@@ -251,6 +251,10 @@ func (zenon *mockZenon) InsertReceiveBlock(fromHeader types.AccountHeader, templ
 	if template.FromBlockHash.IsZero() {
 		template.FromBlockHash = fromBlock.Hash
 	}
+	// todo add fee here?
+	if template.Fee == nil {
+		template.Fee = big.NewInt(0)
+	}
 
 	transaction, err := zenon.supervisor.GenerateFromTemplate(template, getSignFunc(fromBlock.ToAddress))
 

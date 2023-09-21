@@ -1,6 +1,8 @@
 syntax = "proto3";
 package types;
 
+option go_package="github.com/zenon-network/go-zenon/common/types";
+
 message AddressProto {
   bytes address = 1;
 }

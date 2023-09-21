@@ -104,6 +104,13 @@ var (
 	CompressedECDSAPubKeyLength   = 33
 	ECDSASignatureLength          = 65
 
+	/// === Fee constants ===
+
+	// MinFee is set so that every 200 transactions with minFee will cost 1 ZNN
+	MinFee              = big.NewInt(1 * Decimals / 200)
+	PillarFeePercentage = 50
+	BurnedFeePercentage = 50
+
 	/// === Reward constants ===
 
 	// RewardTickDurationInEpochs represents the duration (in epochs) for each reward tick

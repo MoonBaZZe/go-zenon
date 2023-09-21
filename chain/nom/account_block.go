@@ -116,6 +116,8 @@ type AccountBlock struct {
 	producer  *types.Address    // not included in hash, for caching purpose only
 	PublicKey ed25519.PublicKey `json:"publicKey"` // not included in hash
 	Signature []byte            `json:"signature"` // not included in hash
+
+	Fee *big.Int `json:"fee"`
 }
 
 func (ab *AccountBlock) Identifier() types.HashHeight {
@@ -163,6 +165,13 @@ func (ab *AccountBlock) Copy() *AccountBlock {
 	for _, dBlock := range ab.DescendantBlocks {
 		cBlock.DescendantBlocks = append(cBlock.DescendantBlocks, dBlock.Copy())
 	}
+
+	if ab.Fee != nil {
+		cBlock.Fee = new(big.Int).Set(ab.Fee)
+	} else {
+		cBlock.Fee = big.NewInt(0)
+	}
+
 	return &cBlock
 }
 
@@ -254,6 +263,12 @@ func (ab *AccountBlock) Proto() *AccountBlockProto {
 		pb.DescendantBlocks = append(pb.DescendantBlocks, dBlock.Proto())
 	}
 
+	if ab.Fee != nil {
+		pb.Fee = common.BigIntToBytes(ab.Fee)
+	} else {
+		pb.Fee = nil
+	}
+
 	return pb
 }
 func DeProtoAccountBlock(pb *AccountBlockProto) *AccountBlock {
@@ -287,6 +302,13 @@ func DeProtoAccountBlock(pb *AccountBlockProto) *AccountBlock {
 	for index, dBlockProto := range pb.DescendantBlocks {
 		ab.DescendantBlocks[index] = DeProtoAccountBlock(dBlockProto)
 	}
+
+	if pb.Fee != nil {
+		ab.Fee = common.BytesToBigInt(pb.Fee)
+	} else {
+		ab.Fee = nil
+	}
+
 	return ab
 }
 func (ab *AccountBlock) Serialize() ([]byte, error) {
@@ -336,6 +358,8 @@ type AccountBlockMarshal struct {
 	producer  *types.Address    // not included in hash, for caching purpose only
 	PublicKey ed25519.PublicKey `json:"publicKey"` // not included in hash
 	Signature []byte            `json:"signature"` // not included in hash
+
+	Fee string `json:"fee"`
 }
 
 func (ab *AccountBlock) ToNomMarshalJson() *AccountBlockMarshal {
@@ -366,6 +390,10 @@ func (ab *AccountBlock) ToNomMarshalJson() *AccountBlockMarshal {
 	aux.DescendantBlocks = make([]*AccountBlock, 0, len(ab.DescendantBlocks))
 	for _, dBlock := range ab.DescendantBlocks {
 		aux.DescendantBlocks = append(aux.DescendantBlocks, dBlock)
+	}
+
+	if ab.Fee != nil {
+		aux.Fee = ab.Fee.String()
 	}
 	return aux
 }
@@ -400,6 +428,8 @@ func (ab *AccountBlockMarshal) FromNomMarshalJson() *AccountBlock {
 	for _, dBlock := range ab.DescendantBlocks {
 		aux.DescendantBlocks = append(aux.DescendantBlocks, dBlock)
 	}
+	aux.Fee = common.StringToBigInt(ab.Fee)
+
 	return aux
 }
 
@@ -439,6 +469,7 @@ func (ab *AccountBlock) UnmarshalJSON(data []byte) error {
 	for index, dBlock := range aux.DescendantBlocks {
 		ab.DescendantBlocks[index] = dBlock
 	}
+	ab.Fee = common.StringToBigInt(aux.Fee)
 
 	return nil
 }

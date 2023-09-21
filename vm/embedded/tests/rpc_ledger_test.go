@@ -2,6 +2,10 @@ package tests
 
 import (
 	"encoding/json"
+	"fmt"
+	"github.com/zenon-network/go-zenon/rpc/api/embedded"
+	"github.com/zenon-network/go-zenon/vm/constants"
+	"github.com/zenon-network/go-zenon/vm/embedded/definition"
 	"math/big"
 	"testing"
 	"time"
@@ -741,4 +745,128 @@ func TestRPCLedger_Errors(t *testing.T) {
 	common.Json(ledgerApi.GetDetailedMomentumsByHeight(0, 3)).Error(t, api.ErrHeightParamIsZero)
 	common.Json(ledgerApi.GetDetailedMomentumsByHeight(1, 1234)).Error(t, api.ErrCountParamTooBig)
 	common.Json(ledgerApi.GetAccountBlocksByPage(types.ZeroAddress, 0, 1234)).Error(t, api.ErrPageSizeParamTooBig)
+}
+
+func activateFee(z mock.MockZenon) {
+	z.InsertSendBlock(&nom.AccountBlock{
+		Address:   g.Spork.Address,
+		ToAddress: types.SporkContract,
+		Data: definition.ABISpork.PackMethodPanic(definition.SporkCreateMethodName,
+			"spork-fee",              // name
+			"activate spork for fee", // description
+		),
+	}, nil, mock.SkipVmChanges)
+	z.InsertNewMomentum()
+
+	sporkAPI := embedded.NewSporkApi(z)
+	sporkList, _ := sporkAPI.GetAll(0, 10)
+	id := sporkList.List[0].Id
+
+	z.InsertSendBlock(&nom.AccountBlock{
+		Address:   g.Spork.Address,
+		ToAddress: types.SporkContract,
+		Data: definition.ABISpork.PackMethodPanic(definition.SporkActivateMethodName,
+			id, // id
+		),
+	}, nil, mock.SkipVmChanges)
+	z.InsertNewMomentum()
+	types.FeeSpork.SporkId = id
+	types.ImplementedSporksMap[id] = true
+}
+
+func sendZts(from, to types.Address, zts types.ZenonTokenStandard, amount, fee *big.Int, data []byte) *nom.AccountBlock {
+	return &nom.AccountBlock{
+		Address:       from,
+		ToAddress:     to,
+		TokenStandard: zts,
+		Amount:        amount,
+		Data:          data,
+		Fee:           fee,
+	}
+}
+func TestFees(t *testing.T) {
+	z := mock.NewMockZenon(t)
+	//ledgerApi := api.NewLedgerApi(z)
+	defer z.StopPanic()
+	z.InsertMomentumsTo(10)
+
+	sendAmount := big.NewInt(5 * g.Zexp)
+	fee := big.NewInt(0)
+
+	z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 12000*g.Zexp)
+	z.InsertSendBlock(sendZts(g.User1.Address, g.User2.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{}), nil, mock.SkipVmChanges)
+	z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 11995*g.Zexp)
+	insertMomentums(z, 2)
+
+	// fee should not be deducted
+	fee = big.NewInt(1 * g.Zexp)
+	z.InsertSendBlock(sendZts(g.User1.Address, g.User2.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{}), nil, mock.SkipVmChanges)
+	z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 11990*g.Zexp)
+	insertMomentums(z, 2)
+
+	activateFee(z)
+	insertMomentums(z, 15)
+
+	defer z.CallContract(&nom.AccountBlock{
+		Address:       g.User1.Address,
+		ToAddress:     types.TokenContract,
+		TokenStandard: types.ZnnTokenStandard,
+		Amount:        constants.TokenIssueAmount,
+		Data: definition.ABIToken.PackMethodPanic(definition.IssueMethodName,
+			"test.tok3n_na-m3",  //param.TokenName
+			"TEST",              //param.TokenSymbol
+			"",                  //param.TokenDomain
+			big.NewInt(100000),  //param.TotalSupply
+			big.NewInt(1000000), //param.MaxSupply
+			uint8(1),            //param.Decimals
+			true,                //param.IsMintable
+			true,                //param.IsBurnable
+			false,               //param.IsUtility
+		),
+	}).Error(t, nil)
+
+	sendAmount = big.NewInt(10 * g.Zexp)
+	fee = big.NewInt(1 * g.Zexp)
+	z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 11989*g.Zexp)
+	sendBlock := sendZts(g.User1.Address, g.User2.Address, types.QsrTokenStandard, sendAmount, fee, []byte{})
+	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
+	sendBlock = sendZts(g.User2.Address, g.User1.Address, types.QsrTokenStandard, sendAmount, fee, []byte{})
+	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
+	z.InsertNewMomentum()
+
+	sendAmount = big.NewInt(15 * g.Zexp)
+	fee = big.NewInt(1 * g.Zexp)
+	z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 11988*g.Zexp)
+	sendBlock = sendZts(g.User1.Address, g.User2.Address, types.QsrTokenStandard, sendAmount, fee, []byte{})
+	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
+
+	sendBlock = sendZts(g.User2.Address, g.User3.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{})
+	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
+	autoreceive(t, z, g.User2.Address)
+
+	sendBlock = sendZts(g.User1.Address, g.User2.Address, types.QsrTokenStandard, sendAmount, nil, []byte{})
+	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
+	autoreceive(t, z, g.User1.Address)
+
+	sendBlock = sendZts(g.User2.Address, g.User3.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{})
+	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
+
+	sendAmount = big.NewInt(1 * g.Zexp / 10)
+	fee = big.NewInt(1 * g.Zexp / 200)
+	for i := 0; i < 1000; i++ {
+		sendBlock = sendZts(g.User3.Address, g.User4.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{})
+		z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
+	}
+
+	insertMomentums(z, 1)
+	z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 11987*g.Zexp)
+
+	ledgerApi := api.NewLedgerApi(z)
+	frMom, _ := ledgerApi.GetFrontierMomentum()
+	fmt.Println(len(frMom.Content))
+	for _, bH := range frMom.Content {
+		block, _ := ledgerApi.GetAccountBlockByHash(bH.Hash)
+		fmt.Println(block.BlockType, block.Address.String())
+	}
+
 }
