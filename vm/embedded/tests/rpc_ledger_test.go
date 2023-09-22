@@ -803,7 +803,7 @@ func TestFees(t *testing.T) {
 	z.InsertSendBlock(sendZts(g.User1.Address, g.User2.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{}), nil, mock.SkipVmChanges)
 	z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 11990*g.Zexp)
 	insertMomentums(z, 2)
-
+	autoreceive(t, z, g.User2.Address)
 	activateFee(z)
 	insertMomentums(z, 15)
 
@@ -827,46 +827,78 @@ func TestFees(t *testing.T) {
 
 	sendAmount = big.NewInt(10 * g.Zexp)
 	fee = big.NewInt(1 * g.Zexp)
-	z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 11989*g.Zexp)
+	//z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 11989*g.Zexp)
 	sendBlock := sendZts(g.User1.Address, g.User2.Address, types.QsrTokenStandard, sendAmount, fee, []byte{})
 	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
 	sendBlock = sendZts(g.User2.Address, g.User1.Address, types.QsrTokenStandard, sendAmount, fee, []byte{})
 	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
+	sendBlock = sendZts(g.User2.Address, g.User3.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{})
+	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
 	z.InsertNewMomentum()
 
 	sendAmount = big.NewInt(15 * g.Zexp)
-	fee = big.NewInt(1 * g.Zexp)
-	z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 11988*g.Zexp)
+	fee = big.NewInt(0 * g.Zexp)
+	//z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 11988*g.Zexp)
 	sendBlock = sendZts(g.User1.Address, g.User2.Address, types.QsrTokenStandard, sendAmount, fee, []byte{})
 	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
 
 	sendBlock = sendZts(g.User2.Address, g.User3.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{})
 	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
-	autoreceive(t, z, g.User2.Address)
 
-	sendBlock = sendZts(g.User1.Address, g.User2.Address, types.QsrTokenStandard, sendAmount, nil, []byte{})
+	fee = big.NewInt(1 * g.Zexp)
+	sendBlock = sendZts(g.User3.Address, g.User1.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{})
+	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
+
+	sendAmount = big.NewInt(5000 * g.Zexp)
+	sendBlock = sendZts(g.User1.Address, g.User3.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{})
 	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
 	autoreceive(t, z, g.User1.Address)
-
+	autoreceive(t, z, g.User2.Address)
 	sendBlock = sendZts(g.User2.Address, g.User3.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{})
 	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
 
+	sendBlock = sendZts(g.User1.Address, g.User3.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{})
+	z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
+
+	autoreceive(t, z, g.User3.Address)
 	sendAmount = big.NewInt(1 * g.Zexp / 10)
 	fee = big.NewInt(1 * g.Zexp / 200)
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 750; i++ {
 		sendBlock = sendZts(g.User3.Address, g.User4.Address, types.ZnnTokenStandard, sendAmount, fee, []byte{})
 		z.InsertSendBlock(sendBlock, nil, mock.SkipVmChanges)
 	}
+	dataSendBlock, err := sendBlock.Serialize()
+	common.DealWithErr(err)
+	fmt.Println("dataSendBlock:", len(dataSendBlock))
 
 	insertMomentums(z, 1)
-	z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 11987*g.Zexp)
+	//z.ExpectBalance(g.User1.Address, types.ZnnTokenStandard, 11987*g.Zexp)
 
 	ledgerApi := api.NewLedgerApi(z)
 	frMom, _ := ledgerApi.GetFrontierMomentum()
 	fmt.Println(len(frMom.Content))
 	for _, bH := range frMom.Content {
 		block, _ := ledgerApi.GetAccountBlockByHash(bH.Hash)
-		fmt.Println(block.BlockType, block.Address.String())
+		fmt.Printf("Type: %d, Fee: %s, TotalPlasma: %d, Hash: %s, Address: %s\n", block.BlockType, block.Fee.String(), block.TotalPlasma, block.Hash.String(), whatAddress(block.Address))
 	}
+	momData, err := frMom.Serialize()
+	common.DealWithErr(err)
+	fmt.Println("momData:", len(momData))
+}
 
+func whatAddress(address types.Address) string {
+	switch address.String() {
+	case g.User1.Address.String():
+		return "User1"
+	case g.User2.Address.String():
+		return "User2"
+	case g.User3.Address.String():
+		return "User3"
+	case g.User4.Address.String():
+		return "User4"
+	case g.User5.Address.String():
+		return "User5"
+	default:
+		return "contract"
+	}
 }

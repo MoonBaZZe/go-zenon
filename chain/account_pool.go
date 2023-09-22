@@ -6,6 +6,7 @@ import (
 	"github.com/zenon-network/go-zenon/vm/constants"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/inconshreveable/log15"
 	"github.com/pkg/errors"
@@ -273,10 +274,11 @@ func (ap *accountPool) rebuild(detailed *nom.DetailedMomentum) error {
 }
 
 func (ap *accountPool) GetNewMomentumContent(feeSporkActive bool) []*nom.AccountBlock {
-	uncomittedAccountBlocks := ap.GetAllUncommittedAccountBlocks()
 	if feeSporkActive {
-		return ap.filterBlocksToCommitFeeSporkActive(uncomittedAccountBlocks)
+		uncomittedAccountBlocksSporkActive := ap.GetAllUncommittedAccountBlocksSporkActive()
+		return ap.filterBlocksToCommitFeeSporkActive(uncomittedAccountBlocksSporkActive)
 	}
+	uncomittedAccountBlocks := ap.GetAllUncommittedAccountBlocks()
 	return ap.filterBlocksToCommit(uncomittedAccountBlocks)
 }
 func (ap *accountPool) filterBlocksToCommit(blocks []*nom.AccountBlock) []*nom.AccountBlock {
@@ -295,61 +297,94 @@ func (ap *accountPool) filterBlocksToCommit(blocks []*nom.AccountBlock) []*nom.A
 	return toCommit
 }
 
-func (ap *accountPool) filterBlocksToCommitFeeSporkActive(blocks []*nom.AccountBlock) []*nom.AccountBlock {
-	toCommit := make([]*nom.AccountBlock, 0, len(blocks))
-	// Priority in order
-	// embedded send blocks
-	// embedded receive blocks
-	// user receive blocks
-	// fee account blocks
-	// others
+func EqualAccountBlockComparer(a, b *nom.AccountBlock) bool {
+	if a.Fee.Cmp(b.Fee) == 0 {
+		if a.TotalPlasma == b.TotalPlasma {
+			return a.Hash.String() < b.Hash.String()
+		}
+		return a.TotalPlasma > b.TotalPlasma
+	} else if a.Fee.Cmp(b.Fee) == -1 {
+		return false
+	}
+	return true
+}
+
+// Priority in order
+// embedded send blocks
+// embedded receive blocks
+// user receive blocks
+// fee account blocks
+// total plasma
+// hash
+func (ap *accountPool) filterBlocksToCommitFeeSporkActive(blockBatches [][]*nom.AccountBlock) []*nom.AccountBlock {
+	// As the account blocks are fetched in batches based by address, we will split them so we maintain height order. We do this so the final sort won't contain big batches
+	indexesMap := make(map[int]int)
+	for i, _ := range blockBatches {
+		indexesMap[i] = 0
+	}
+
+	ok := false
+	blocks := make([]*nom.AccountBlock, 0)
+	start := time.Now()
+
+	for !ok {
+		ok = true
+		for i, batch := range blockBatches {
+			if indexesMap[i] == len(batch) {
+				continue
+			}
+			ok = false
+			blocks = append(blocks, batch[indexesMap[i]])
+			indexesMap[i] = indexesMap[i] + 1
+		}
+	}
+	end := time.Since(start)
+	fmt.Printf("\nbatches time %f\n\n", end.Seconds())
+
+	start = time.Now()
 	sort.SliceStable(blocks, func(i, j int) bool {
-		// maintain account blocks order
+		// if this happens, we need to maintain an order of the account blocks
 		if blocks[i].Address.String() == blocks[j].Address.String() {
 			return blocks[i].Height < blocks[j].Height
 		}
-		fmt.Println(blocks[i].BlockType, blocks[j].BlockType)
 		switch blocks[i].BlockType {
 		case nom.BlockTypeContractSend:
+			if blocks[j].BlockType == nom.BlockTypeContractSend {
+				return EqualAccountBlockComparer(blocks[i], blocks[j])
+			}
 			return true
 		case nom.BlockTypeContractReceive:
 			switch blocks[j].BlockType {
 			case nom.BlockTypeContractSend:
 				return false
 			case nom.BlockTypeContractReceive:
-				return true
+				return EqualAccountBlockComparer(blocks[i], blocks[j])
 			default:
 				return true
 			}
-		case nom.BlockTypeUserReceive:
+		case nom.BlockTypeUserReceive, nom.BlockTypeUserSend:
 			switch blocks[j].BlockType {
 			case nom.BlockTypeContractSend, nom.BlockTypeContractReceive:
 				return false
 			default:
-				return true
+				return EqualAccountBlockComparer(blocks[i], blocks[j])
 			}
-		case nom.BlockTypeUserSend:
-			switch blocks[j].BlockType {
-			case nom.BlockTypeContractSend, nom.BlockTypeContractReceive, nom.BlockTypeUserReceive:
-				return false
-			default:
-				if blocks[i].Fee.Cmp(blocks[j].Fee) == 0 {
-					if blocks[i].TotalPlasma == blocks[j].TotalPlasma {
-						return blocks[i].Hash.String() < blocks[j].Hash.String()
-					}
-					return blocks[i].TotalPlasma >= blocks[j].TotalPlasma
-				} else if blocks[i].Fee.Cmp(blocks[j].Fee) == -1 {
-					return false
-				}
-				return true
-			}
+			//case nom.BlockTypeUserSend:
+			//	switch blocks[j].BlockType {
+			//	case nom.BlockTypeContractSend, nom.BlockTypeContractReceive, nom.BlockTypeUserReceive:
+			//		return false
+			//	default:
+			//		return EqualAccountBlockComparer(blocks[i], blocks[j])
+			//	}
 		}
 		return true
 	})
+	end = time.Since(start)
+	fmt.Printf("\nsort time %f\n\n", end.Seconds())
 
+	toCommit := make([]*nom.AccountBlock, 0)
 	totalSize := 0
 	for index := range blocks {
-		fmt.Printf("index: %d, block type: %d\n", index, blocks[index].BlockType)
 		abBytes, err := blocks[index].Serialize()
 		common.DealWithErr(err)
 
@@ -373,6 +408,18 @@ func (ap *accountPool) GetAllUncommittedAccountBlocks() []*nom.AccountBlock {
 
 	return blocks
 }
+func (ap *accountPool) GetAllUncommittedAccountBlocksSporkActive() [][]*nom.AccountBlock {
+	ap.changes.Lock()
+	defer ap.changes.Unlock()
+
+	blocks := make([][]*nom.AccountBlock, 0)
+	for address := range ap.managers {
+		blocks = append(blocks, ap.getUncommittedAccountBlocksByAddress(address))
+	}
+
+	return blocks
+}
+
 func (ap *accountPool) GetUncommittedAccountBlocksByAddress(address types.Address) []*nom.AccountBlock {
 	ap.changes.Lock()
 	defer ap.changes.Unlock()

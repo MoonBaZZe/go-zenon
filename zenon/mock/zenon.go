@@ -149,8 +149,9 @@ func (zenon *mockZenon) CreateMomentum(momentumTransaction *nom.MomentumTransact
 	if err != nil {
 		panic(fmt.Errorf("failed to insert own momentum. reason:%w", err))
 	}
-	for _, block := range momentumTransaction.Momentum.Content {
-		zenon.log.Info("added block to momentum", "momentum-height", momentumTransaction.Momentum.Height, "identifier", block)
+	zenon.log.Info("len blocks to momentum", "len", len(momentumTransaction.Momentum.Content))
+	for index, block := range momentumTransaction.Momentum.Content {
+		zenon.log.Info("added block to momentum", "momentum-height", momentumTransaction.Momentum.Height, "identifier", block, "index", index)
 	}
 }
 func (zenon *mockZenon) CreateAccountBlock(accountBlockTransaction *nom.AccountBlockTransaction) {
