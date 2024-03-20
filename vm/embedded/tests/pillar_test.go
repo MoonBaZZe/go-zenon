@@ -20,6 +20,526 @@ const (
 	momentumsInHour = 360
 )
 
+func activateCage(z mock.MockZenon) {
+	z.InsertSendBlock(&nom.AccountBlock{
+		Address:   g.Spork.Address,
+		ToAddress: types.SporkContract,
+		Data: definition.ABISpork.PackMethodPanic(definition.SporkCreateMethodName,
+			"spork-cage",              // name
+			"activate spork for cage", // description
+		),
+	}, nil, mock.SkipVmChanges)
+	z.InsertNewMomentum()
+
+	sporkAPI := embedded.NewSporkApi(z)
+	sporkList, _ := sporkAPI.GetAll(0, 10)
+	id := sporkList.List[0].Id
+
+	z.InsertSendBlock(&nom.AccountBlock{
+		Address:   g.Spork.Address,
+		ToAddress: types.SporkContract,
+		Data: definition.ABISpork.PackMethodPanic(definition.SporkActivateMethodName,
+			id, // id
+		),
+	}, nil, mock.SkipVmChanges)
+	z.InsertNewMomentum()
+	types.PillarCageSpork.SporkId = id
+	types.ImplementedSporksMap[id] = true
+}
+
+func skipAndInsertMomentums(z mock.MockZenon, target int) {
+	for i := 0; i < target; i++ {
+		z.SkipAndInsertNewMomentum()
+	}
+}
+
+func skipPillarAndInsertMomentums(z mock.MockZenon, pillar *types.Address, target int) {
+	for i := 0; i < target; i++ {
+		z.SkipPillarAndInsertNewMomentum(pillar)
+	}
+}
+
+func TestPillar_Eligibility(t *testing.T) {
+	z := mock.NewMockZenonWithCustomEpochDuration(t, time.Hour)
+	defer z.StopPanic()
+	defer z.SaveLogs(common.EmbeddedLogger).HideHashes().Equals(t, `
+t=2001-09-09T01:46:50+0000 lvl=dbug msg=created module=embedded contract=spork spork="&{Id:XXXHASHXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX Name:spork-cage Description:activate spork for cage Activated:false EnforcementHeight:0}"
+t=2001-09-09T01:47:00+0000 lvl=dbug msg=activated module=embedded contract=spork spork="&{Id:XXXHASHXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX Name:spork-cage Description:activate spork for cage Activated:true EnforcementHeight:9}"
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxpyllarxxxxxxxxxxxxxxxsy3fmg current-height=361 last-update-height=0
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=0 pillar-name=TEST-pillar-1 reward="&{DelegationReward:+100800000 BlockReward:+83333333 TotalReward:+184133333 ProducedBlockNum:1 ExpectedBlockNum:120 Weight:+2100000000000}" total-weight=2500000000000 self-weight=2100000000000
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=0 pillar-name=TEST-pillar-cool reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=0 pillar-name=TEST-pillar-znn reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=pillar epoch=1
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxsentynelxxxxxxxxxxxxxwy0r2r current-height=361 last-update-height=0
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="updating sentinel reward" module=embedded contract=sentinel epoch=0 total-znn-reward=187200000000 total-qsr-reward=500000000000 cumulated-sentinel=0 start-time=1000000000 end-time=1000003600
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=sentinel epoch=1
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxstakexxxxxxxxxxxxxxxxjv8v62 current-height=361 last-update-height=0
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="updating stake reward" module=embedded contract=stake epoch=0 total-reward=1000000000000 cumulated-stake=0 start-time=1000000000 end-time=1000003600
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=stake epoch=1
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae current-height=361 last-update-height=0
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="updating liquidity stake reward" module=embedded contract=liquidity epoch=0 znn-total-amount=187200000000 qsr-total-amount=500000000000
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="updating liquidity balance" module=embedded contract=liquidity epoch=0 znnReward=187200000000
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="updating liquidity balance" module=embedded contract=liquidity epoch=0 qsrReward=500000000000
+t=2001-09-09T03:16:10+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxaccelerat0rxxxxxxxxxxp4tk22 current-height=361 last-update-height=0
+t=2001-09-09T03:16:20+0000 lvl=dbug msg="minted ZTS" module=embedded contract=token token="&{Owner:z1qxemdeddedxpyllarxxxxxxxxxxxxxxxsy3fmg TokenName:Zenon Coin TokenSymbol:ZNN TokenDomain:zenon.network TotalSupply:+19687200000000 MaxSupply:+4611686018427387903 Decimals:8 IsMintable:true IsBurnable:true IsUtility:true TokenStandard:zts1znnxxxxxxxxxxxxx9z4ulx}" minted-amount=187200000000 to-address=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae
+t=2001-09-09T03:16:20+0000 lvl=dbug msg="minted ZTS" module=embedded contract=token token="&{Owner:z1qxemdeddedxstakexxxxxxxxxxxxxxxxjv8v62 TokenName:QuasarCoin TokenSymbol:QSR TokenDomain:zenon.network TotalSupply:+181050000000000 MaxSupply:+4611686018427387903 Decimals:8 IsMintable:true IsBurnable:true IsUtility:true TokenStandard:zts1qsrxxxxxxxxxxxxxmrhjll}" minted-amount=500000000000 to-address=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae
+t=2001-09-09T03:16:40+0000 lvl=info msg="received donation" module=embedded contract=common embedded=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae from-address=z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0 zts=zts1znnxxxxxxxxxxxxx9z4ulx amount=187200000000
+t=2001-09-09T03:16:40+0000 lvl=info msg="received donation" module=embedded contract=common embedded=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae from-address=z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0 zts=zts1qsrxxxxxxxxxxxxxmrhjll amount=500000000000
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxpyllarxxxxxxxxxxxxxxxsy3fmg current-height=722 last-update-height=361
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=1 pillar-name=TEST-pillar-1 reward="&{DelegationReward:+0 BlockReward:+0 TotalReward:+0 ProducedBlockNum:0 ExpectedBlockNum:120 Weight:+2100000000000}" total-weight=2500000000000 self-weight=2100000000000
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=1 pillar-name=TEST-pillar-cool reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=1 pillar-name=TEST-pillar-znn reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=pillar epoch=2
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxsentynelxxxxxxxxxxxxxwy0r2r current-height=722 last-update-height=361
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="updating sentinel reward" module=embedded contract=sentinel epoch=1 total-znn-reward=187200000000 total-qsr-reward=500000000000 cumulated-sentinel=0 start-time=1000003600 end-time=1000007200
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=sentinel epoch=2
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxstakexxxxxxxxxxxxxxxxjv8v62 current-height=722 last-update-height=361
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="updating stake reward" module=embedded contract=stake epoch=1 total-reward=1000000000000 cumulated-stake=0 start-time=1000003600 end-time=1000007200
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=stake epoch=2
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae current-height=722 last-update-height=361
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="updating liquidity stake reward" module=embedded contract=liquidity epoch=1 znn-total-amount=187200000000 qsr-total-amount=500000000000
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="updating liquidity balance" module=embedded contract=liquidity epoch=1 znnReward=187200000000
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="updating liquidity balance" module=embedded contract=liquidity epoch=1 qsrReward=500000000000
+t=2001-09-09T04:46:30+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxaccelerat0rxxxxxxxxxxp4tk22 current-height=722 last-update-height=361
+t=2001-09-09T04:46:40+0000 lvl=dbug msg="minted ZTS" module=embedded contract=token token="&{Owner:z1qxemdeddedxpyllarxxxxxxxxxxxxxxxsy3fmg TokenName:Zenon Coin TokenSymbol:ZNN TokenDomain:zenon.network TotalSupply:+19874400000000 MaxSupply:+4611686018427387903 Decimals:8 IsMintable:true IsBurnable:true IsUtility:true TokenStandard:zts1znnxxxxxxxxxxxxx9z4ulx}" minted-amount=187200000000 to-address=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae
+t=2001-09-09T04:46:40+0000 lvl=dbug msg="minted ZTS" module=embedded contract=token token="&{Owner:z1qxemdeddedxstakexxxxxxxxxxxxxxxxjv8v62 TokenName:QuasarCoin TokenSymbol:QSR TokenDomain:zenon.network TotalSupply:+181550000000000 MaxSupply:+4611686018427387903 Decimals:8 IsMintable:true IsBurnable:true IsUtility:true TokenStandard:zts1qsrxxxxxxxxxxxxxmrhjll}" minted-amount=500000000000 to-address=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae
+t=2001-09-09T04:46:50+0000 lvl=info msg="received donation" module=embedded contract=common embedded=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae from-address=z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0 zts=zts1znnxxxxxxxxxxxxx9z4ulx amount=187200000000
+t=2001-09-09T04:46:50+0000 lvl=info msg="received donation" module=embedded contract=common embedded=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae from-address=z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0 zts=zts1qsrxxxxxxxxxxxxxmrhjll amount=500000000000
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxpyllarxxxxxxxxxxxxxxxsy3fmg current-height=1083 last-update-height=722
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=2 pillar-name=TEST-pillar-1 reward="&{DelegationReward:+0 BlockReward:+0 TotalReward:+0 ProducedBlockNum:0 ExpectedBlockNum:120 Weight:+2100000000000}" total-weight=2500000000000 self-weight=2100000000000
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=2 pillar-name=TEST-pillar-cool reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=2 pillar-name=TEST-pillar-znn reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=3 pillar-name=TEST-pillar-1 reward="&{DelegationReward:+0 BlockReward:+0 TotalReward:+0 ProducedBlockNum:0 ExpectedBlockNum:120 Weight:+2100000000000}" total-weight=2500000000000 self-weight=2100000000000
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=3 pillar-name=TEST-pillar-cool reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=3 pillar-name=TEST-pillar-znn reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T06:17:00+0000 lvl=info msg="set pillar as non eligible" module=embedded contract=pillar epoch=3 name=TEST-pillar-1
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=pillar epoch=4
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxsentynelxxxxxxxxxxxxxwy0r2r current-height=1083 last-update-height=722
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="updating sentinel reward" module=embedded contract=sentinel epoch=2 total-znn-reward=187200000000 total-qsr-reward=500000000000 cumulated-sentinel=0 start-time=1000007200 end-time=1000010800
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="updating sentinel reward" module=embedded contract=sentinel epoch=3 total-znn-reward=187200000000 total-qsr-reward=500000000000 cumulated-sentinel=0 start-time=1000010800 end-time=1000014400
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=sentinel epoch=4
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxstakexxxxxxxxxxxxxxxxjv8v62 current-height=1083 last-update-height=722
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="updating stake reward" module=embedded contract=stake epoch=2 total-reward=1000000000000 cumulated-stake=0 start-time=1000007200 end-time=1000010800
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="updating stake reward" module=embedded contract=stake epoch=3 total-reward=1000000000000 cumulated-stake=0 start-time=1000010800 end-time=1000014400
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=stake epoch=4
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae current-height=1083 last-update-height=722
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="updating liquidity stake reward" module=embedded contract=liquidity epoch=2 znn-total-amount=187200000000 qsr-total-amount=500000000000
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="updating liquidity balance" module=embedded contract=liquidity epoch=2 znnReward=187200000000
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="updating liquidity balance" module=embedded contract=liquidity epoch=2 qsrReward=500000000000
+t=2001-09-09T06:17:00+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxaccelerat0rxxxxxxxxxxp4tk22 current-height=1083 last-update-height=722
+t=2001-09-09T06:17:10+0000 lvl=dbug msg="minted ZTS" module=embedded contract=token token="&{Owner:z1qxemdeddedxpyllarxxxxxxxxxxxxxxxsy3fmg TokenName:Zenon Coin TokenSymbol:ZNN TokenDomain:zenon.network TotalSupply:+20061600000000 MaxSupply:+4611686018427387903 Decimals:8 IsMintable:true IsBurnable:true IsUtility:true TokenStandard:zts1znnxxxxxxxxxxxxx9z4ulx}" minted-amount=187200000000 to-address=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae
+t=2001-09-09T06:17:10+0000 lvl=dbug msg="minted ZTS" module=embedded contract=token token="&{Owner:z1qxemdeddedxstakexxxxxxxxxxxxxxxxjv8v62 TokenName:QuasarCoin TokenSymbol:QSR TokenDomain:zenon.network TotalSupply:+182050000000000 MaxSupply:+4611686018427387903 Decimals:8 IsMintable:true IsBurnable:true IsUtility:true TokenStandard:zts1qsrxxxxxxxxxxxxxmrhjll}" minted-amount=500000000000 to-address=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae
+t=2001-09-09T06:17:20+0000 lvl=info msg="received donation" module=embedded contract=common embedded=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae from-address=z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0 zts=zts1znnxxxxxxxxxxxxx9z4ulx amount=187200000000
+t=2001-09-09T06:17:20+0000 lvl=info msg="received donation" module=embedded contract=common embedded=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae from-address=z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0 zts=zts1qsrxxxxxxxxxxxxxmrhjll amount=500000000000
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxpyllarxxxxxxxxxxxxxxxsy3fmg current-height=1444 last-update-height=1083
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=4 pillar-name=TEST-pillar-1 reward="&{DelegationReward:+5644800000 BlockReward:+4666666648 TotalReward:+10311466648 ProducedBlockNum:56 ExpectedBlockNum:120 Weight:+2100000000000}" total-weight=2500000000000 self-weight=2100000000000
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=4 pillar-name=TEST-pillar-cool reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=4 pillar-name=TEST-pillar-znn reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=pillar epoch=5
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxsentynelxxxxxxxxxxxxxwy0r2r current-height=1444 last-update-height=1083
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="updating sentinel reward" module=embedded contract=sentinel epoch=4 total-znn-reward=187200000000 total-qsr-reward=500000000000 cumulated-sentinel=0 start-time=1000014400 end-time=1000018000
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=sentinel epoch=5
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxstakexxxxxxxxxxxxxxxxjv8v62 current-height=1444 last-update-height=1083
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="updating stake reward" module=embedded contract=stake epoch=4 total-reward=1000000000000 cumulated-stake=0 start-time=1000014400 end-time=1000018000
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=stake epoch=5
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae current-height=1444 last-update-height=1083
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="updating liquidity stake reward" module=embedded contract=liquidity epoch=3 znn-total-amount=187200000000 qsr-total-amount=500000000000
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="updating liquidity balance" module=embedded contract=liquidity epoch=3 znnReward=187200000000
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="updating liquidity balance" module=embedded contract=liquidity epoch=3 qsrReward=500000000000
+t=2001-09-09T07:17:30+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxaccelerat0rxxxxxxxxxxp4tk22 current-height=1444 last-update-height=1083
+t=2001-09-09T07:17:40+0000 lvl=dbug msg="minted ZTS" module=embedded contract=token token="&{Owner:z1qxemdeddedxpyllarxxxxxxxxxxxxxxxsy3fmg TokenName:Zenon Coin TokenSymbol:ZNN TokenDomain:zenon.network TotalSupply:+20248800000000 MaxSupply:+4611686018427387903 Decimals:8 IsMintable:true IsBurnable:true IsUtility:true TokenStandard:zts1znnxxxxxxxxxxxxx9z4ulx}" minted-amount=187200000000 to-address=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae
+t=2001-09-09T07:17:40+0000 lvl=dbug msg="minted ZTS" module=embedded contract=token token="&{Owner:z1qxemdeddedxstakexxxxxxxxxxxxxxxxjv8v62 TokenName:QuasarCoin TokenSymbol:QSR TokenDomain:zenon.network TotalSupply:+182550000000000 MaxSupply:+4611686018427387903 Decimals:8 IsMintable:true IsBurnable:true IsUtility:true TokenStandard:zts1qsrxxxxxxxxxxxxxmrhjll}" minted-amount=500000000000 to-address=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae
+t=2001-09-09T07:17:50+0000 lvl=info msg="received donation" module=embedded contract=common embedded=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae from-address=z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0 zts=zts1znnxxxxxxxxxxxxx9z4ulx amount=187200000000
+t=2001-09-09T07:17:50+0000 lvl=info msg="received donation" module=embedded contract=common embedded=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae from-address=z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0 zts=zts1qsrxxxxxxxxxxxxxmrhjll amount=500000000000
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxpyllarxxxxxxxxxxxxxxxsy3fmg current-height=1805 last-update-height=1444
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=5 pillar-name=TEST-pillar-1 reward="&{DelegationReward:+12096000000 BlockReward:+9999999960 TotalReward:+22095999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+2100000000000}" total-weight=2500000000000 self-weight=2100000000000
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=5 pillar-name=TEST-pillar-cool reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=5 pillar-name=TEST-pillar-znn reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=pillar epoch=6
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxsentynelxxxxxxxxxxxxxwy0r2r current-height=1805 last-update-height=1444
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="updating sentinel reward" module=embedded contract=sentinel epoch=5 total-znn-reward=187200000000 total-qsr-reward=500000000000 cumulated-sentinel=0 start-time=1000018000 end-time=1000021600
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=sentinel epoch=6
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxstakexxxxxxxxxxxxxxxxjv8v62 current-height=1805 last-update-height=1444
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="updating stake reward" module=embedded contract=stake epoch=5 total-reward=1000000000000 cumulated-stake=0 start-time=1000018000 end-time=1000021600
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=stake epoch=6
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae current-height=1805 last-update-height=1444
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="updating liquidity stake reward" module=embedded contract=liquidity epoch=4 znn-total-amount=187200000000 qsr-total-amount=500000000000
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="updating liquidity balance" module=embedded contract=liquidity epoch=4 znnReward=187200000000
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="updating liquidity balance" module=embedded contract=liquidity epoch=4 qsrReward=500000000000
+t=2001-09-09T08:17:40+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxaccelerat0rxxxxxxxxxxp4tk22 current-height=1805 last-update-height=1444
+t=2001-09-09T08:17:50+0000 lvl=dbug msg="minted ZTS" module=embedded contract=token token="&{Owner:z1qxemdeddedxpyllarxxxxxxxxxxxxxxxsy3fmg TokenName:Zenon Coin TokenSymbol:ZNN TokenDomain:zenon.network TotalSupply:+20436000000000 MaxSupply:+4611686018427387903 Decimals:8 IsMintable:true IsBurnable:true IsUtility:true TokenStandard:zts1znnxxxxxxxxxxxxx9z4ulx}" minted-amount=187200000000 to-address=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae
+t=2001-09-09T08:17:50+0000 lvl=dbug msg="minted ZTS" module=embedded contract=token token="&{Owner:z1qxemdeddedxstakexxxxxxxxxxxxxxxxjv8v62 TokenName:QuasarCoin TokenSymbol:QSR TokenDomain:zenon.network TotalSupply:+183050000000000 MaxSupply:+4611686018427387903 Decimals:8 IsMintable:true IsBurnable:true IsUtility:true TokenStandard:zts1qsrxxxxxxxxxxxxxmrhjll}" minted-amount=500000000000 to-address=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae
+t=2001-09-09T08:18:00+0000 lvl=info msg="received donation" module=embedded contract=common embedded=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae from-address=z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0 zts=zts1znnxxxxxxxxxxxxx9z4ulx amount=187200000000
+t=2001-09-09T08:18:00+0000 lvl=info msg="received donation" module=embedded contract=common embedded=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae from-address=z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0 zts=zts1qsrxxxxxxxxxxxxxmrhjll amount=500000000000
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxpyllarxxxxxxxxxxxxxxxsy3fmg current-height=2166 last-update-height=1805
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=6 pillar-name=TEST-pillar-1 reward="&{DelegationReward:+12096000000 BlockReward:+9999999960 TotalReward:+22095999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+2100000000000}" total-weight=2500000000000 self-weight=2100000000000
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=6 pillar-name=TEST-pillar-cool reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="computer pillar-reward" module=embedded contract=pillar epoch=6 pillar-name=TEST-pillar-znn reward="&{DelegationReward:+1152000000 BlockReward:+9999999960 TotalReward:+11151999960 ProducedBlockNum:120 ExpectedBlockNum:120 Weight:+200000000000}" total-weight=2500000000000 self-weight=200000000000
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=pillar epoch=7
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxsentynelxxxxxxxxxxxxxwy0r2r current-height=2166 last-update-height=1805
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="updating sentinel reward" module=embedded contract=sentinel epoch=6 total-znn-reward=187200000000 total-qsr-reward=500000000000 cumulated-sentinel=0 start-time=1000021600 end-time=1000025200
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=sentinel epoch=7
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxstakexxxxxxxxxxxxxxxxjv8v62 current-height=2166 last-update-height=1805
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="updating stake reward" module=embedded contract=stake epoch=6 total-reward=1000000000000 cumulated-stake=0 start-time=1000021600 end-time=1000025200
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="invalid update - rewards not due yet" module=embedded contract=stake epoch=7
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae current-height=2166 last-update-height=1805
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="updating liquidity stake reward" module=embedded contract=liquidity epoch=5 znn-total-amount=187200000000 qsr-total-amount=500000000000
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="updating liquidity balance" module=embedded contract=liquidity epoch=5 znnReward=187200000000
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="updating liquidity balance" module=embedded contract=liquidity epoch=5 qsrReward=500000000000
+t=2001-09-09T09:17:50+0000 lvl=dbug msg="updating contract state" module=embedded contract=common contract=z1qxemdeddedxaccelerat0rxxxxxxxxxxp4tk22 current-height=2166 last-update-height=1805
+t=2001-09-09T09:18:00+0000 lvl=dbug msg="minted ZTS" module=embedded contract=token token="&{Owner:z1qxemdeddedxpyllarxxxxxxxxxxxxxxxsy3fmg TokenName:Zenon Coin TokenSymbol:ZNN TokenDomain:zenon.network TotalSupply:+20623200000000 MaxSupply:+4611686018427387903 Decimals:8 IsMintable:true IsBurnable:true IsUtility:true TokenStandard:zts1znnxxxxxxxxxxxxx9z4ulx}" minted-amount=187200000000 to-address=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae
+t=2001-09-09T09:18:00+0000 lvl=dbug msg="minted ZTS" module=embedded contract=token token="&{Owner:z1qxemdeddedxstakexxxxxxxxxxxxxxxxjv8v62 TokenName:QuasarCoin TokenSymbol:QSR TokenDomain:zenon.network TotalSupply:+183550000000000 MaxSupply:+4611686018427387903 Decimals:8 IsMintable:true IsBurnable:true IsUtility:true TokenStandard:zts1qsrxxxxxxxxxxxxxmrhjll}" minted-amount=500000000000 to-address=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae
+t=2001-09-09T09:18:10+0000 lvl=info msg="received donation" module=embedded contract=common embedded=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae from-address=z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0 zts=zts1znnxxxxxxxxxxxxx9z4ulx amount=187200000000
+t=2001-09-09T09:18:10+0000 lvl=info msg="received donation" module=embedded contract=common embedded=z1qxemdeddedxlyquydytyxxxxxxxxxxxxflaaae from-address=z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0 zts=zts1qsrxxxxxxxxxxxxxmrhjll amount=500000000000
+`)
+
+	activateCage(z)
+	z.InsertMomentumsTo(10)
+
+	pillarAPI := embedded.NewPillarApi(z, true)
+	pillarList, err := pillarAPI.GetAll(0, 10)
+	common.DealWithErr(err)
+	common.Json(pillarAPI.GetPillarEligibilityList()).Equals(t, `
+{
+	"count": 3,
+	"list": [
+		{
+			"name": "TEST-pillar-1",
+			"eligible": true
+		},
+		{
+			"name": "TEST-pillar-cool",
+			"eligible": true
+		},
+		{
+			"name": "TEST-pillar-znn",
+			"eligible": true
+		}
+	]
+}`)
+
+	skipPillarAndInsertMomentums(z, &pillarList.List[0].BlockProducingAddress, 360)
+	common.Json(pillarAPI.GetPillarsHistoryByEpoch(0, 0, 10)).Equals(t, `
+{
+	"count": 3,
+	"list": [
+		{
+			"name": "TEST-pillar-1",
+			"epoch": 0,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 1,
+			"expectedBlockNum": 120,
+			"weight": "2100000000000"
+		},
+		{
+			"name": "TEST-pillar-cool",
+			"epoch": 0,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "200000000000"
+		},
+		{
+			"name": "TEST-pillar-znn",
+			"epoch": 0,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "200000000000"
+		}
+	]
+}`)
+
+	skipPillarAndInsertMomentums(z, &pillarList.List[0].BlockProducingAddress, 360)
+	common.Json(pillarAPI.GetPillarsHistoryByEpoch(1, 0, 10)).Equals(t, `
+{
+	"count": 3,
+	"list": [
+		{
+			"name": "TEST-pillar-1",
+			"epoch": 1,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 0,
+			"expectedBlockNum": 120,
+			"weight": "2100000000000"
+		},
+		{
+			"name": "TEST-pillar-cool",
+			"epoch": 1,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "200000000000"
+		},
+		{
+			"name": "TEST-pillar-znn",
+			"epoch": 1,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "200000000000"
+		}
+	]
+}`)
+
+	skipPillarAndInsertMomentums(z, &pillarList.List[0].BlockProducingAddress, 360)
+
+	common.Json(pillarAPI.GetPillarEligibilityList()).Equals(t, `
+{
+	"count": 3,
+	"list": [
+		{
+			"name": "TEST-pillar-1",
+			"eligible": false
+		},
+		{
+			"name": "TEST-pillar-cool",
+			"eligible": true
+		},
+		{
+			"name": "TEST-pillar-znn",
+			"eligible": true
+		}
+	]
+}`)
+
+	common.Json(pillarAPI.GetPillarsHistoryByEpoch(2, 0, 10)).Equals(t, `
+{
+	"count": 3,
+	"list": [
+		{
+			"name": "TEST-pillar-1",
+			"epoch": 2,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 0,
+			"expectedBlockNum": 120,
+			"weight": "2100000000000"
+		},
+		{
+			"name": "TEST-pillar-cool",
+			"epoch": 2,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "200000000000"
+		},
+		{
+			"name": "TEST-pillar-znn",
+			"epoch": 2,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "200000000000"
+		}
+	]
+}`)
+
+	// TEST-pillar-1 produced in the last 3 epochs below threshold so he should not produce anymore unless he calls Activate
+	insertMomentums(z, 360)
+
+	common.Json(pillarAPI.GetPillarEligibilityList()).Equals(t, `
+{
+	"count": 3,
+	"list": [
+		{
+			"name": "TEST-pillar-1",
+			"eligible": false
+		},
+		{
+			"name": "TEST-pillar-cool",
+			"eligible": true
+		},
+		{
+			"name": "TEST-pillar-znn",
+			"eligible": true
+		}
+	]
+}`)
+
+	common.Json(pillarAPI.GetPillarsHistoryByEpoch(3, 0, 10)).Equals(t, `
+{
+	"count": 3,
+	"list": [
+		{
+			"name": "TEST-pillar-1",
+			"epoch": 3,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 0,
+			"expectedBlockNum": 120,
+			"weight": "2100000000000"
+		},
+		{
+			"name": "TEST-pillar-cool",
+			"epoch": 3,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "200000000000"
+		},
+		{
+			"name": "TEST-pillar-znn",
+			"epoch": 3,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "200000000000"
+		}
+	]
+}`)
+
+	defer z.CallContract(activatePillar(g.Pillar1.Address, g.Pillar1Name)).
+		Error(t, nil)
+	insertMomentums(z, 2)
+	common.Json(pillarAPI.GetPillarEligibilityList()).Equals(t, `
+{
+	"count": 3,
+	"list": [
+		{
+			"name": "TEST-pillar-1",
+			"eligible": true
+		},
+		{
+			"name": "TEST-pillar-cool",
+			"eligible": true
+		},
+		{
+			"name": "TEST-pillar-znn",
+			"eligible": true
+		}
+	]
+}`)
+
+	insertMomentums(z, 360)
+	common.Json(pillarAPI.GetPillarEligibilityList()).Equals(t, `
+{
+	"count": 3,
+	"list": [
+		{
+			"name": "TEST-pillar-1",
+			"eligible": true
+		},
+		{
+			"name": "TEST-pillar-cool",
+			"eligible": true
+		},
+		{
+			"name": "TEST-pillar-znn",
+			"eligible": true
+		}
+	]
+}`)
+	common.Json(pillarAPI.GetPillarsHistoryByEpoch(4, 0, 10)).Equals(t, `
+{
+	"count": 3,
+	"list": [
+		{
+			"name": "TEST-pillar-1",
+			"epoch": 4,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 56,
+			"expectedBlockNum": 120,
+			"weight": "2100000000000"
+		},
+		{
+			"name": "TEST-pillar-cool",
+			"epoch": 4,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "200000000000"
+		},
+		{
+			"name": "TEST-pillar-znn",
+			"epoch": 4,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "200000000000"
+		}
+	]
+}`)
+
+	insertMomentums(z, 360)
+
+	common.Json(pillarAPI.GetPillarEligibilityList()).Equals(t, `
+{
+	"count": 3,
+	"list": [
+		{
+			"name": "TEST-pillar-1",
+			"eligible": true
+		},
+		{
+			"name": "TEST-pillar-cool",
+			"eligible": true
+		},
+		{
+			"name": "TEST-pillar-znn",
+			"eligible": true
+		}
+	]
+}`)
+	common.Json(pillarAPI.GetPillarsHistoryByEpoch(5, 0, 10)).Equals(t, `
+{
+	"count": 3,
+	"list": [
+		{
+			"name": "TEST-pillar-1",
+			"epoch": 5,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "2100000000000"
+		},
+		{
+			"name": "TEST-pillar-cool",
+			"epoch": 5,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "200000000000"
+		},
+		{
+			"name": "TEST-pillar-znn",
+			"epoch": 5,
+			"giveBlockRewardPercentage": 0,
+			"giveDelegateRewardPercentage": 100,
+			"producedBlockNum": 120,
+			"expectedBlockNum": 120,
+			"weight": "200000000000"
+		}
+	]
+}`)
+
+}
+
+func activatePillar(sender types.Address, pillarName string) *nom.AccountBlock {
+	return &nom.AccountBlock{
+		Address:       sender,
+		ToAddress:     types.PillarContract,
+		TokenStandard: types.ZnnTokenStandard,
+		Amount:        big.NewInt(0),
+		Data:          definition.ABIPillars.PackMethodPanic(definition.ActivateProducingMethodName, pillarName),
+	}
+}
+
 // ** Depends on the way on which the consensus computes delegation & pillars. **
 // Delegate in such a way that it doesn't influence the first epoch and it fully influences the second epoch.
 // The rewards for each epoch for User1 should stay the same.

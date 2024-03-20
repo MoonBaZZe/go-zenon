@@ -26,6 +26,35 @@ func (ms *momentumStore) getAllDelegations() ([]*definition.DelegationInfo, erro
 
 	return definition.GetDelegationsList(sd.Storage())
 }
+
+func (ms *momentumStore) getAllDelegationsEligible() ([]*definition.DelegationInfo, error) {
+	sd, err := ms.getEmbeddedStore(types.PillarContract)
+	if err != nil {
+		return nil, fmt.Errorf("getEmbeddedStore failed: %w", err)
+	}
+
+	delegationList, err := definition.GetDelegationsList(sd.Storage())
+	if err != nil {
+		return nil, err
+	}
+	index := 0
+	for idx, pillar := range delegationList {
+		eligibility, err := definition.GetPillarProducingEligibilityEntry(sd.Storage(), pillar.Name)
+		if err != nil {
+			return nil, err
+		}
+		if eligibility.Eligible == true {
+			delegationList[index] = delegationList[idx]
+			index++
+		}
+	}
+	for i := index; i < len(delegationList); i++ {
+		delegationList[i] = nil
+	}
+	delegationList = delegationList[:index]
+	return delegationList, nil
+}
+
 func (ms *momentumStore) computeBackers(infos []*definition.DelegationInfo) (*map[string]map[types.Address]*big.Int, error) {
 	result := map[string]map[types.Address]*big.Int{}
 
@@ -58,6 +87,53 @@ func (ms *momentumStore) computeBackers(infos []*definition.DelegationInfo) (*ma
 }
 func (ms *momentumStore) ComputePillarDelegations() ([]*types.PillarDelegationDetail, error) {
 	delegations, _ := ms.getAllDelegations()
+	backers, err := ms.computeBackers(delegations)
+	if err != nil {
+		return nil, err
+	}
+
+	// query register info
+	registerList, _ := ms.GetActivePillars()
+	pillarDelegationDetails := make([]*types.PillarDelegationDetail, 0, len(registerList))
+	for _, registration := range registerList {
+		pillarDelegationDetails = append(pillarDelegationDetails, &types.PillarDelegationDetail{
+			PillarDelegation: types.PillarDelegation{
+				Name:      registration.Name,
+				Producing: registration.BlockProducingAddress,
+				Weight:    big.NewInt(0),
+			},
+			Backers: make(map[types.Address]*big.Int, 0),
+		})
+	}
+
+	for pillarName, delegators := range *backers {
+		// Get registration
+		var delegation *types.PillarDelegationDetail
+		for _, r := range pillarDelegationDetails {
+			if r.Name == pillarName {
+				delegation = r
+			}
+		}
+
+		if delegation == nil {
+			continue
+		}
+
+		totalBalance := big.NewInt(0)
+		for _, balance := range delegators {
+			totalBalance.Add(totalBalance, balance)
+		}
+
+		delegation.Weight.Set(totalBalance)
+		delegation.Backers = delegators
+	}
+
+	sort.Sort(types.SortPDDByWeight(pillarDelegationDetails))
+	return pillarDelegationDetails, nil
+}
+
+func (ms *momentumStore) ComputePillarDelegationsEligible() ([]*types.PillarDelegationDetail, error) {
+	delegations, _ := ms.getAllDelegationsEligible()
 	backers, err := ms.computeBackers(delegations)
 	if err != nil {
 		return nil, err

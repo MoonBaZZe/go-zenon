@@ -189,6 +189,60 @@ func (zenon *mockZenon) InsertNewMomentum() {
 		}
 	}
 }
+
+func (zenon *mockZenon) SkipPillarAndInsertNewMomentum(pillar *types.Address) {
+	store := zenon.chain.GetFrontierMomentumStore()
+	previousMomentum, err := store.GetFrontierMomentum()
+	common.DealWithErr(err)
+	t := previousMomentum.Timestamp.Add(time.Second * 10)
+	expected, err := zenon.consensus.GetMomentumProducer(t)
+	common.DealWithErr(err)
+	if expected == nil {
+		panic("nil expected")
+	}
+	for *expected == *pillar {
+		t = t.Add(time.Second * 10)
+		expected, err = zenon.consensus.GetMomentumProducer(t)
+		common.DealWithErr(err)
+		if expected == nil {
+			panic("nil expected")
+		}
+	}
+
+	for _, pillarE := range zenon.pillars {
+		if *pillarE.GetCoinBase() == *expected {
+			pillarE.Process(consensus.ProducerEvent{
+				Producer:  *expected,
+				StartTime: t,
+				EndTime:   t.Add(time.Second * 10),
+				Name:      "",
+			}).Wait()
+		}
+	}
+}
+
+func (zenon *mockZenon) SkipAndInsertNewMomentum() {
+	store := zenon.chain.GetFrontierMomentumStore()
+	previousMomentum, err := store.GetFrontierMomentum()
+	common.DealWithErr(err)
+	t := previousMomentum.Timestamp.Add(time.Second * 20)
+	expected, err := zenon.consensus.GetMomentumProducer(t)
+	common.DealWithErr(err)
+	if expected == nil {
+		panic("nil expected")
+	}
+
+	for _, pillarE := range zenon.pillars {
+		if *pillarE.GetCoinBase() == *expected {
+			pillarE.Process(consensus.ProducerEvent{
+				Producer:  *expected,
+				StartTime: t,
+				EndTime:   t.Add(time.Second * 10),
+				Name:      "",
+			}).Wait()
+		}
+	}
+}
 func (zenon *mockZenon) InsertMomentumsTo(targetHeight uint64) {
 	currentHeight := zenon.chain.GetFrontierMomentumStore().Identifier().Height
 	for i := currentHeight + 1; i <= targetHeight; i += 1 {

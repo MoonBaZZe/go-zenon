@@ -453,3 +453,45 @@ func (a *PillarApi) GetPillarsHistoryByEpoch(epoch uint64, pageIndex, pageSize u
 		List:  pillars[start:end],
 	}, nil
 }
+
+type PillarEligibilityList struct {
+	Count int64                                    `json:"count"`
+	List  []*definition.PillarProducingEligibility `json:"list"`
+}
+
+func (a *PillarApi) GetPillarEligibility(name string) (bool, error) {
+	_, context, err := api.GetFrontierContext(a.chain, types.PillarContract)
+	if err != nil {
+		return false, err
+	}
+
+	el, err := definition.GetPillarProducingEligibilityEntry(context.Storage(), name)
+	return el.Eligible, nil
+}
+
+func (a *PillarApi) GetPillarEligibilityList() (*PillarEligibilityList, error) {
+	_, context, err := api.GetFrontierContext(a.chain, types.PillarContract)
+	if err != nil {
+		return nil, err
+	}
+
+	pillarList, err := a.GetAll(0, api.RpcMaxPageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	eligibilityList := make([]*definition.PillarProducingEligibility, 0)
+
+	for _, p := range pillarList.List {
+		el, err := definition.GetPillarProducingEligibilityEntry(context.Storage(), p.Name)
+		if err != nil {
+			return nil, err
+		}
+		eligibilityList = append(eligibilityList, el)
+	}
+
+	return &PillarEligibilityList{
+		Count: int64(len(eligibilityList)),
+		List:  eligibilityList,
+	}, nil
+}

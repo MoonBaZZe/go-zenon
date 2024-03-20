@@ -36,7 +36,14 @@ var (
 	acceleratorEmbedded        = getAccelerator()
 	htlcEmbedded               = getHtlc()
 	bridgeAndLiquidityEmbedded = getBridgeAndLiquidity()
+	cage                       = getCage()
 )
+
+func getCage() map[types.Address]*embeddedImplementation {
+	contracts := getHtlc()
+	contracts[types.PillarContract].m[cabi.ActivateProducingMethodName] = &implementation.ActiveProducingMethod{cabi.ActivateProducingMethodName}
+	return contracts
+}
 
 func getHtlc() map[types.Address]*embeddedImplementation {
 	contracts := getBridgeAndLiquidity()
@@ -217,7 +224,9 @@ func GetEmbeddedMethod(context vm_context.AccountVmContext, address types.Addres
 
 	var contractsMap map[types.Address]*embeddedImplementation
 
-	if context.IsHtlcSporkEnforced() {
+	if context.IsPillarCageEnforced() {
+		contractsMap = cage
+	} else if context.IsHtlcSporkEnforced() {
 		contractsMap = htlcEmbedded
 	} else if context.IsBridgeAndLiquiditySporkEnforced() {
 		contractsMap = bridgeAndLiquidityEmbedded

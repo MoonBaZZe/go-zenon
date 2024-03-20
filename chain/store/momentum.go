@@ -47,6 +47,7 @@ type Momentum interface {
 	GetStakeBeneficialAmount(addr types.Address) (*big.Int, error)
 	GetTokenInfoByTs(ts types.ZenonTokenStandard) (*definition.TokenInfo, error)
 	ComputePillarDelegations() ([]*types.PillarDelegationDetail, error)
+	ComputePillarDelegationsEligible() ([]*types.PillarDelegationDetail, error)
 
 	GetAccountStore(address types.Address) Account
 	GetAccountDB(address types.Address) db.DB

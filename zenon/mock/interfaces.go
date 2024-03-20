@@ -12,6 +12,8 @@ type MockZenon interface {
 	StopPanic()
 
 	InsertNewMomentum()
+	SkipPillarAndInsertNewMomentum(*types.Address)
+	SkipAndInsertNewMomentum()
 	InsertMomentumsTo(targetHeight uint64)
 
 	CallContract(template *nom.AccountBlock) *common.Expecter

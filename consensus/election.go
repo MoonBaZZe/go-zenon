@@ -158,7 +158,14 @@ func (em *electionManager) generateProducers(proofBlock *nom.Momentum) (*storage
 	}
 
 	// get delegations
-	delegationsDetailed, err := store.ComputePillarDelegations()
+	var delegationsDetailed []*types.PillarDelegationDetail
+	active, err := store.IsSporkActive(types.BridgeAndLiquiditySpork)
+	common.DealWithErr(err)
+	if active {
+		delegationsDetailed, err = store.ComputePillarDelegationsEligible()
+	} else {
+		delegationsDetailed, err = store.ComputePillarDelegations()
+	}
 	if err != nil {
 		return nil, err
 	}

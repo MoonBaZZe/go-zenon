@@ -48,6 +48,7 @@ const (
 		{"type":"function","name":"Delegate", "inputs":[{"name":"name","type":"string"}]},
 		{"type":"function","name":"Undelegate","inputs":[]},
 		{"type":"function","name":"CollectReward","inputs":[]},
+		{"type":"function","name":"ActivateProducing","inputs":[{"name":"name","type":"string"}]},
 
 		{"type":"variable","name":"pillarInfo","inputs":[
 			{"name":"name","type":"string"},
@@ -76,33 +77,39 @@ const (
 			{"name":"producedBlockNum","type":"int32"},
 			{"name":"expectedBlockNum","type":"int32"},
 			{"name":"weight","type":"uint256"}
+		]},
+		{"type":"variable","name":"pillarProducingEligibility","inputs":[
+			{"name":"eligible","type":"bool"}
 		]}
 	]`
 
 	RegisterMethodName       = "Register"
 	LegacyRegisterMethodName = "RegisterLegacy"
 
-	UpdatePillarMethodName = "UpdatePillar"
-	RevokeMethodName       = "Revoke"
-	DelegateMethodName     = "Delegate"
-	UndelegateMethodName   = "Undelegate"
+	UpdatePillarMethodName      = "UpdatePillar"
+	RevokeMethodName            = "Revoke"
+	DelegateMethodName          = "Delegate"
+	UndelegateMethodName        = "Undelegate"
+	ActivateProducingMethodName = "ActivateProducing"
 
 	pillarInfoVariableName          = "pillarInfo"
 	producingPillarNameVariableName = "producingPillarName"
 	legacyPillarEntryVariableName   = "LegacyPillarEntry"
 	delegationInfoVariableName      = "delegationInfo"
 	pillarEpochHistoryVariableName  = "pillarEpochHistory"
+	pillarProducingEligibility      = "pillarProducingEligibility"
 )
 
 var (
 	// ABIPillars is abi definition of pillar contract
 	ABIPillars = abi.JSONToABIContract(strings.NewReader(jsonPillars))
 
-	pillarInfoKeyPrefix          = []byte{1}
-	producingPillarNameKeyPrefix = []byte{2}
-	legacyPillarEntryKeyPrefix   = []byte{3}
-	delegationInfoKeyPrefix      = []byte{4}
-	pillarEpochHistoryKeyPrefix  = []byte{5}
+	pillarInfoKeyPrefix                 = []byte{1}
+	producingPillarNameKeyPrefix        = []byte{2}
+	legacyPillarEntryKeyPrefix          = []byte{3}
+	delegationInfoKeyPrefix             = []byte{4}
+	pillarEpochHistoryKeyPrefix         = []byte{5}
+	pillarProducingEligibilityKeyPrefix = []byte{6}
 
 	AnyPillarType    = uint8(0)
 	LegacyPillarType = uint8(1)
@@ -429,6 +436,72 @@ func GetLegacyPillarList(context db.DB) ([]*LegacyPillarEntry, error) {
 	return list, nil
 }
 
+type PillarProducingEligibility struct {
+	Name     string `json:"name"`
+	Eligible bool   `json:"eligible"`
+}
+
+func (ppe *PillarProducingEligibility) Save(context db.DB) error {
+	data, err := ABIPillars.PackVariable(
+		pillarProducingEligibility,
+		ppe.Eligible)
+	if err != nil {
+		return err
+	}
+	return context.Put(GetPillarProducingEligibilityEntryKey(ppe.Name), data)
+}
+
+func getPillarProducingEligibilityPrefixKey() []byte {
+	return pillarProducingEligibilityKeyPrefix
+}
+func GetPillarProducingEligibilityEntryKey(name string) []byte {
+	return common.JoinBytes(getPillarProducingEligibilityPrefixKey(), []byte(name))
+}
+
+func parsePillarProducingEligibilityEntry(key, data []byte) (*PillarProducingEligibility, error) {
+	if len(data) > 0 {
+		entry := new(PillarProducingEligibility)
+		if err := ABIPillars.UnpackVariable(entry, pillarProducingEligibility, data); err != nil {
+			return nil, err
+		}
+		if name, err := unmarshalPillarProducingEligibilityEntryKey(key); err == nil {
+			entry.Name = name
+		} else {
+			return nil, err
+		}
+		return entry, nil
+	} else {
+		return nil, constants.ErrDataNonExistent
+	}
+}
+
+func unmarshalPillarProducingEligibilityEntryKey(key []byte) (string, error) {
+	if !isPillarProducingEligibilityEntryKey(key) {
+		return "", errors.Errorf("invalid key! Not PillarProducingEligibility key")
+	}
+	name := string(key[1:])
+	return name, nil
+}
+
+func isPillarProducingEligibilityEntryKey(key []byte) bool {
+	return key[0] == pillarProducingEligibilityKeyPrefix[0]
+}
+
+func GetPillarProducingEligibilityEntry(context db.DB, name string) (*PillarProducingEligibility, error) {
+	key := GetPillarProducingEligibilityEntryKey(name)
+	data, err := context.Get(key)
+	common.DealWithErr(err)
+	if len(data) == 0 {
+		// No entry found means that the pillar has never become inactive so it is eligible
+		return &PillarProducingEligibility{
+			Name:     name,
+			Eligible: true,
+		}, nil
+	} else {
+		return parsePillarProducingEligibilityEntry(key, data)
+	}
+}
+
 type PillarEpochHistory struct {
 	Name                         string   `json:"name"`
 	Epoch                        uint64   `json:"epoch"`
@@ -503,6 +576,30 @@ func GetPillarEpochHistoryList(context db.DB, epoch uint64) ([]*PillarEpochHisto
 		}
 		if entry, err := parsePillarEpochHistoryEntry(iterator.Key(), iterator.Value()); err == nil && entry != nil {
 			list = append(list, entry)
+		} else {
+			return nil, err
+		}
+	}
+
+	return list, nil
+}
+
+func GetFilteredPillarEpochHistoryList(context db.DB, epoch uint64, inactivePillars map[string]bool) ([]*PillarEpochHistory, error) {
+	iterator := context.NewIterator(getPillarEpochHistoryPrefixKey(epoch))
+	defer iterator.Release()
+	list := make([]*PillarEpochHistory, 0)
+
+	for {
+		if !iterator.Next() {
+			if iterator.Error() != nil {
+				return nil, iterator.Error()
+			}
+			break
+		}
+		if entry, err := parsePillarEpochHistoryEntry(iterator.Key(), iterator.Value()); err == nil && entry != nil {
+			if inactive, ok := inactivePillars[entry.Name]; ok && inactive {
+				list = append(list, entry)
+			}
 		} else {
 			return nil, err
 		}

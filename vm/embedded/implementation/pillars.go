@@ -374,6 +374,10 @@ func computeDetailedPillarReward(context vm_context.AccountVmContext, epoch uint
 	toGive := make(map[string]*big.Int)
 	pillarInfos, err := definition.GetPillarsList(context.Storage(), false, definition.AnyPillarType)
 
+	inactivePillars := make(map[string]bool)
+	inactivePillarsCount := 0
+	threshold := int32(25)
+
 	// set pillar percentages in DB for historic reasons
 	for _, pillar := range pillarInfos {
 		reward, ok := pillarReward[pillar.Name]
@@ -393,6 +397,41 @@ func computeDetailedPillarReward(context vm_context.AccountVmContext, epoch uint
 		}).Save(context.Storage())
 		if err != nil {
 			return err
+		}
+
+		if reward.ProducedBlockNum*100/reward.ExpectedBlockNum < threshold {
+			inactivePillars[pillar.Name] = true
+			inactivePillarsCount++
+		}
+	}
+
+	if context.IsPillarCageEnforced() {
+		if epoch > 2 && inactivePillarsCount > 0 {
+			for i := uint64(0); i < 3; i++ {
+				// todo @moonbaze get pillars one by one
+				list, err := definition.GetFilteredPillarEpochHistoryList(context.Storage(), epoch-i, inactivePillars)
+				if err != nil {
+					return err
+				}
+				for _, pillar := range list {
+					if pillar.ProducedBlockNum*100/pillar.ExpectedBlockNum >= threshold {
+						inactivePillars[pillar.Name] = false
+					}
+				}
+			}
+
+			for pillarName, inactive := range inactivePillars {
+				if inactive {
+					err = (&definition.PillarProducingEligibility{
+						Name:     pillarName,
+						Eligible: false,
+					}).Save(context.Storage())
+					if err != nil {
+						return err
+					}
+					pillarLog.Info("set pillar as non eligible", "epoch", epoch, "name", pillarName)
+				}
+			}
 		}
 	}
 
@@ -789,5 +828,69 @@ func (p *UpdateEmbeddedPillarMethod) ReceiveBlock(context vm_context.AccountVmCo
 	if err := updatePillarRewards(context); err != nil {
 		return nil, err
 	}
+	return nil, nil
+}
+
+type ActiveProducingMethod struct {
+	MethodName string
+}
+
+func (p *ActiveProducingMethod) GetPlasma(plasmaTable *constants.PlasmaTable) (uint64, error) {
+	return plasmaTable.EmbeddedSimple, nil
+}
+func (p *ActiveProducingMethod) ValidateSendBlock(block *nom.AccountBlock) error {
+	var err error
+	param := new(string)
+
+	if err := definition.ABIPillars.UnpackMethod(param, p.MethodName, block.Data); err != nil {
+		return constants.ErrUnpackError
+	}
+
+	if err := checkPillarNameStatic(*param); err != nil {
+		return err
+	}
+	if block.Amount.Sign() != 0 {
+		return constants.ErrInvalidTokenOrAmount
+	}
+
+	block.Data, err = definition.ABIPillars.PackMethod(p.MethodName, param)
+	return err
+}
+func (p *ActiveProducingMethod) ReceiveBlock(context vm_context.AccountVmContext, sendBlock *nom.AccountBlock) ([]*nom.AccountBlock, error) {
+	if err := p.ValidateSendBlock(sendBlock); err != nil {
+		return nil, err
+	}
+
+	name := new(string)
+	err := definition.ABIPillars.UnpackMethod(name, p.MethodName, sendBlock.Data)
+	common.DealWithErr(err)
+
+	// check pillar exists
+	pillar, err := definition.GetPillarInfo(context.Storage(), *name)
+	if err != nil {
+		if err.Error() == constants.ErrDataNonExistent.Error() {
+			return nil, err
+		}
+		common.DealWithErr(err)
+	}
+
+	if !pillar.IsActive() {
+		return nil, constants.ErrNotActive
+	}
+
+	// Reactivate it using owner address or block producing address
+	if pillar.StakeAddress != sendBlock.Address && pillar.BlockProducingAddress != sendBlock.Address {
+		return nil, constants.ErrPermissionDenied
+	}
+
+	err = (&definition.PillarProducingEligibility{
+		Name:     *name,
+		Eligible: true,
+	}).Save(context.Storage())
+	if err != nil {
+		return nil, err
+	}
+
+	common.DealWithErr(pillar.Save(context.Storage()))
 	return nil, nil
 }

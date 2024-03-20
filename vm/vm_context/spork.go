@@ -22,3 +22,9 @@ func (ctx *accountVmContext) IsBridgeAndLiquiditySporkEnforced() bool {
 	common.DealWithErr(err)
 	return active
 }
+
+func (ctx *accountVmContext) IsPillarCageEnforced() bool {
+	active, err := ctx.momentumStore.IsSporkActive(types.PillarCageSpork)
+	common.DealWithErr(err)
+	return active
+}
