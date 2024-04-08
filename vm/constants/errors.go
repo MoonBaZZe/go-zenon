@@ -101,4 +101,8 @@ var (
 	// Liquidity
 	ErrInvalidPercentages = errors.New("invalid percentages")
 	ErrInvalidRewards     = errors.New("invalid liquidity stake rewards")
+
+	// Merge Mining
+	ErrMergeMiningNotInitialized = errors.New("merge mining info is not initialized")
+	ErrHeaderChainNotInitialized = errors.New("header chain info is not initialized")
 )

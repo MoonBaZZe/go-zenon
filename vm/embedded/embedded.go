@@ -44,7 +44,13 @@ func getMergeMining() map[types.Address]*embeddedImplementation {
 	contracts[types.MergeMiningContract] = &embeddedImplementation{
 		map[string]Method{
 			cabi.AddBitcoinBlockHeaderMethodName:        &implementation.AddBitcoinBlockHeaderMethod{cabi.AddBitcoinBlockHeaderMethodName},
-			cabi.SetInitialBitcoinBlockHeaderMethodName: &implementation.SetInitialBitcoinBlock{cabi.SetInitialBitcoinBlockHeaderMethodName},
+			cabi.SetInitialBitcoinBlockHeaderMethodName: &implementation.SetInitialBitcoinBlockMethod{cabi.SetInitialBitcoinBlockHeaderMethodName},
+			cabi.NominateGuardiansMethodName:            &implementation.NominateGuardiansMergeMiningMethod{cabi.NominateGuardiansMethodName},
+			cabi.ProposeAdministratorMethodName:         &implementation.ProposeAdministratorMergeMiningMethod{cabi.ProposeAdministratorMethodName},
+			cabi.EmergencyMethodName:                    &implementation.EmergencyMergeMiningMethod{cabi.EmergencyMethodName},
+			cabi.ChangeTssECDSAPubKeyMethodName:         &implementation.ChangeTssECDSAPubKeyMergeMiningMethod{cabi.ChangeTssECDSAPubKeyMethodName},
+			cabi.ChangeAdministratorMethodName:          &implementation.ChangeAdministratorMergeMiningMethod{cabi.ChangeAdministratorMethodName},
+			cabi.SetMergeMiningMetadataMethodName:       &implementation.SetMergeMiningMetadataMethod{cabi.SetMergeMiningMetadataMethodName},
 		},
 		cabi.ABIMergeMining,
 	}
