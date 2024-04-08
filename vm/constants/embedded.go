@@ -91,6 +91,10 @@ var (
 	// SwapAssetDecayTickValuePercentage is the percentage that is lost after in each tick, equal to 10% per SwapAssetDecayTickEpochs, after SwapAssetDecayEpochsOffset
 	SwapAssetDecayTickValuePercentage = 10
 
+	/// === Merge Mining constants ===
+
+	InitialMergeMiningAdministrator = types.ParseAddressPanic("z1qr9vtwsfr2n0nsxl2nfh6l5esqjh2wfj85cfq9")
+
 	/// === Bridge constants ===
 
 	InitialBridgeAdministrator   = types.ParseAddressPanic("z1qr9vtwsfr2n0nsxl2nfh6l5esqjh2wfj85cfq9")

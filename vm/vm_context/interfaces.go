@@ -32,6 +32,7 @@ type AccountVmContext interface {
 
 	// ====== Spork ======
 
+	IsMergeMiningEnforced() bool
 	IsAcceleratorSporkEnforced() bool
 	IsHtlcSporkEnforced() bool
 	IsBridgeAndLiquiditySporkEnforced() bool

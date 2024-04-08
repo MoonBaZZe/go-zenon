@@ -5,6 +5,12 @@ import (
 	"github.com/zenon-network/go-zenon/common/types"
 )
 
+func (ctx *accountVmContext) IsMergeMiningEnforced() bool {
+	active, err := ctx.momentumStore.IsSporkActive(types.MergeMiningSpork)
+	common.DealWithErr(err)
+	return active
+}
+
 func (ctx *accountVmContext) IsAcceleratorSporkEnforced() bool {
 	active, err := ctx.momentumStore.IsSporkActive(types.AcceleratorSpork)
 	common.DealWithErr(err)

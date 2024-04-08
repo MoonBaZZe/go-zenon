@@ -36,7 +36,21 @@ var (
 	acceleratorEmbedded        = getAccelerator()
 	htlcEmbedded               = getHtlc()
 	bridgeAndLiquidityEmbedded = getBridgeAndLiquidity()
+	mergeMiningEmbedded        = getMergeMining()
 )
+
+func getMergeMining() map[types.Address]*embeddedImplementation {
+	contracts := getHtlc()
+	contracts[types.MergeMiningContract] = &embeddedImplementation{
+		map[string]Method{
+			cabi.AddBitcoinBlockHeaderMethodName:        &implementation.AddBitcoinBlockHeaderMethod{cabi.AddBitcoinBlockHeaderMethodName},
+			cabi.SetInitialBitcoinBlockHeaderMethodName: &implementation.SetInitialBitcoinBlock{cabi.SetInitialBitcoinBlockHeaderMethodName},
+		},
+		cabi.ABIMergeMining,
+	}
+
+	return contracts
+}
 
 func getHtlc() map[types.Address]*embeddedImplementation {
 	contracts := getBridgeAndLiquidity()
@@ -217,7 +231,9 @@ func GetEmbeddedMethod(context vm_context.AccountVmContext, address types.Addres
 
 	var contractsMap map[types.Address]*embeddedImplementation
 
-	if context.IsHtlcSporkEnforced() {
+	if context.IsMergeMiningEnforced() {
+		contractsMap = mergeMiningEmbedded
+	} else if context.IsHtlcSporkEnforced() {
 		contractsMap = htlcEmbedded
 	} else if context.IsBridgeAndLiquiditySporkEnforced() {
 		contractsMap = bridgeAndLiquidityEmbedded
