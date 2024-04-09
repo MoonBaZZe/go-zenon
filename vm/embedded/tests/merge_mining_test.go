@@ -2,8 +2,6 @@ package tests
 
 import (
 	"fmt"
-	"github.com/btcsuite/btcd/blockchain"
-	"github.com/pkg/errors"
 	g "github.com/zenon-network/go-zenon/chain/genesis/mock"
 	"github.com/zenon-network/go-zenon/chain/nom"
 	"github.com/zenon-network/go-zenon/common"
@@ -170,9 +168,8 @@ func mergeMiningStep3(t *testing.T, z mock.MockZenon) {
 			Bits:       386097875,
 			Nonce:      1731415048,
 		},
-		Hash:    blockHash,
-		Height:  838288,
-		WorkSum: blockchain.CalcWork(386097875),
+		Hash:   blockHash,
+		Height: 838288,
 	}
 
 	defer z.CallContract(setInitialBitcoinBlockHeader(g.User5.Address, blockHeader)).Error(t, nil)
@@ -228,11 +225,6 @@ func mergeMiningStep4(t *testing.T, z mock.MockZenon) {
 func mergeMiningStep5(t *testing.T, z mock.MockZenon) {
 	mergeMiningStep4(t, z)
 
-	workSum, ok := big.NewInt(0).SetString("83126997340024", 10)
-	if !ok {
-		common.DealWithErr(errors.New("work conversion error"))
-	}
-
 	blockHash := types.HexToHashPanic("000000000000000000000142eb893b9b422b5cf60ab352c9a8a2166f0c33c3d2")
 	blockHeader := definition.BlockHeaderVariable{
 		BaseHeader: definition.BaseHeader{
@@ -243,9 +235,8 @@ func mergeMiningStep5(t *testing.T, z mock.MockZenon) {
 			Bits:       386097875,
 			Nonce:      2118989352,
 		},
-		Hash:    blockHash,
-		Height:  838289,
-		WorkSum: workSum,
+		Hash:   blockHash,
+		Height: 838289,
 	}
 	fmt.Println(blockHeader.BlockHash().String())
 	defer z.CallContract(addBitcoinBlockHeader(g.User5.Address, blockHeader)).Error(t, nil)
@@ -297,7 +288,6 @@ func setInitialBitcoinBlockHeader(from types.Address, blockHeader definition.Blo
 			blockHeader.Bits,
 			blockHeader.Nonce,
 			blockHeader.Height,
-			big.NewInt(0).Set(blockHeader.WorkSum),
 		),
 	}
 }
@@ -317,7 +307,6 @@ func addBitcoinBlockHeader(from types.Address, blockHeader definition.BlockHeade
 			blockHeader.Timestamp,
 			blockHeader.Bits,
 			blockHeader.Nonce,
-			blockHeader.WorkSum,
 		),
 	}
 }

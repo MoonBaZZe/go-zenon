@@ -24,8 +24,7 @@ const (
 			{"name":"timestamp","type":"uint32"},
 			{"name":"bits","type":"uint32"},
 			{"name":"nonce","type":"uint32"},
-			{"name":"height","type":"uint32"},
-			{"name":"workSum","type":"uint256"}
+			{"name":"height","type":"uint32"}
 		]},
 
 		{"type":"function","name":"SetShareChain","inputs":[
@@ -40,8 +39,7 @@ const (
 			{"name":"merkleRoot","type":"hash"},
 			{"name":"timestamp","type":"uint32"},
 			{"name":"bits","type":"uint32"},
-			{"name":"nonce","type":"uint32"},
-			{"name":"workSum","type":"uint256"}
+			{"name":"nonce","type":"uint32"}
 		]},
 
 		{"type":"function","name":"Emergency","inputs":[]},

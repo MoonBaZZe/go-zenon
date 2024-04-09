@@ -81,7 +81,7 @@ func (p *SetInitialBitcoinBlockMethod) ValidateSendBlock(block *nom.AccountBlock
 		return constants.ErrInvalidTokenOrAmount
 	}
 
-	block.Data, err = definition.ABIMergeMining.PackMethod(p.MethodName, param.Version, param.PrevBlock, param.MerkleRoot, param.Timestamp, param.Bits, param.Nonce, param.Height, param.WorkSum)
+	block.Data, err = definition.ABIMergeMining.PackMethod(p.MethodName, param.Version, param.PrevBlock, param.MerkleRoot, param.Timestamp, param.Bits, param.Nonce, param.Height)
 	return err
 }
 func (p *SetInitialBitcoinBlockMethod) ReceiveBlock(context vm_context.AccountVmContext, sendBlock *nom.AccountBlock) ([]*nom.AccountBlock, error) {
@@ -114,11 +114,13 @@ func (p *SetInitialBitcoinBlockMethod) ReceiveBlock(context vm_context.AccountVm
 	headerChainInfo, err := definition.GetHeaderChainInfoVariableVariable(context.Storage())
 	common.DealWithErr(err)
 	// It means merge mining has not been initialised and the administrator must set the starting block
+	workSum := big.NewInt(0).Set(blockchain.CalcWork(param.Bits))
 	if reflect.DeepEqual(headerChainInfo.Tip.Bytes(), types.ZeroHash) || headerChainInfo.TipHeight == 0 || headerChainInfo.TipWorkSum.Cmp(big.NewInt(0)) == 0 {
 		headerChainInfo.Tip = param.Hash
 		headerChainInfo.TipHeight = param.Height
-		headerChainInfo.TipWorkSum.Set(param.WorkSum)
+		headerChainInfo.TipWorkSum.Set(workSum)
 		common.DealWithErr(headerChainInfo.Save(context.Storage()))
+		param.WorkSum = big.NewInt(0).Set(workSum)
 		common.DealWithErr(param.Save(context.Storage()))
 	}
 
@@ -263,7 +265,7 @@ func (p *AddBitcoinBlockHeaderMethod) ValidateSendBlock(block *nom.AccountBlock)
 		return constants.ErrInvalidTokenOrAmount
 	}
 
-	block.Data, err = definition.ABIMergeMining.PackMethod(p.MethodName, param.Version, param.PrevBlock, param.MerkleRoot, param.Timestamp, param.Bits, param.Nonce, param.WorkSum)
+	block.Data, err = definition.ABIMergeMining.PackMethod(p.MethodName, param.Version, param.PrevBlock, param.MerkleRoot, param.Timestamp, param.Bits, param.Nonce)
 	return err
 }
 func (p *AddBitcoinBlockHeaderMethod) ReceiveBlock(context vm_context.AccountVmContext, sendBlock *nom.AccountBlock) ([]*nom.AccountBlock, error) {
@@ -288,6 +290,8 @@ func (p *AddBitcoinBlockHeaderMethod) ReceiveBlock(context vm_context.AccountVmC
 			return nil, constants.ErrPrevBlockNonExistent
 		}
 	}
+
+	// ! If the timestamp is in the far future, one could get away with a low difficulty and spam blocks
 
 	// todo better validate timestamp?
 	if param.Timestamp < prevBlock.Timestamp {
@@ -319,12 +323,11 @@ func (p *AddBitcoinBlockHeaderMethod) ReceiveBlock(context vm_context.AccountVmC
 		headerChainInfo.TipWorkSum.Set(workSum)
 		common.DealWithErr(headerChainInfo.Save(context.Storage()))
 	}
-	param.WorkSum.Set(workSum)
+	param.WorkSum = big.NewInt(0).Set(workSum)
 	param.Height = prevBlock.Height + 1
 	common.DealWithErr(param.Save(context.Storage()))
 
 	common.DealWithErr(headerChainInfo.Save(context.Storage()))
-
 	return nil, nil
 }
 
