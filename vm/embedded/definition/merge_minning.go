@@ -1,6 +1,7 @@
 package definition
 
 import (
+	"encoding/binary"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/zenon-network/go-zenon/common"
@@ -29,7 +30,7 @@ const (
 
 		{"type":"function","name":"SetShareChain","inputs":[
 			{"name":"id","type":"uint32"},
-			{"name":"initialDifficulty","type":"uint256"},
+			{"name":"difficulty","type":"uint256"},
 			{"name":"rewardMultiplier","type":"uint32"}
 		]},
 
@@ -39,7 +40,8 @@ const (
 			{"name":"merkleRoot","type":"hash"},
 			{"name":"timestamp","type":"uint32"},
 			{"name":"bits","type":"uint32"},
-			{"name":"nonce","type":"uint32"}
+			{"name":"nonce","type":"uint32"},
+			{"name":"workSum","type":"uint256"}
 		]},
 
 		{"type":"function","name":"Emergency","inputs":[]},
@@ -94,10 +96,12 @@ const (
 	SetInitialBitcoinBlockHeaderMethodName = "SetInitialBitcoinBlockHeader"
 	AddBitcoinBlockHeaderMethodName        = "AddBitcoinBlockHeader"
 	SetMergeMiningMetadataMethodName       = "SetMergeMiningMetadata"
+	SetShareChainMethodName                = "SetShareChain"
 
 	mergeMiningInfoVariableName = "mergeMiningInfo"
-	blockHeaderVariableName     = "blockHeader"
 	headerChainInfoVariableName = "headerChainInfo"
+	shareChainInfoVariableName  = "shareChainInfo"
+	blockHeaderVariableName     = "blockHeader"
 )
 
 var (
@@ -105,7 +109,8 @@ var (
 
 	MergeMiningInfoPrefix = []byte{1}
 	HeaderChainInfoPrefix = []byte{2}
-	BlockHeaderKeyPrefix  = []byte{3}
+	ShareChainInfoPrefix  = []byte{3}
+	BlockHeaderKeyPrefix  = []byte{4}
 )
 
 type MergeMiningInfoVariable struct {
@@ -156,6 +161,56 @@ func GetMergeMiningInfoVariableVariable(context db.DB) (*MergeMiningInfoVariable
 		return nil, err
 	} else {
 		return parseMergeMiningInfoVariable(data)
+	}
+}
+
+type ShareChainInfoVariable struct {
+	Id               uint32   `json:"id"`
+	Difficulty       *big.Int `json:"difficulty"`
+	RewardMultiplier uint32   `json:"rewardMultiplier"`
+}
+
+func GetShareChainKey(id uint32) []byte {
+	idBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(idBytes, id)
+	return common.JoinBytes(ShareChainInfoPrefix, idBytes)
+}
+
+func (s *ShareChainInfoVariable) Save(context db.DB) error {
+	data, err := ABIMergeMining.PackVariable(
+		shareChainInfoVariableName,
+		s.Difficulty,
+		s.RewardMultiplier,
+	)
+	if err != nil {
+		return err
+	}
+	return context.Put(
+		GetShareChainKey(s.Id),
+		data,
+	)
+}
+func parseShareChainInfoVariable(data []byte) (*ShareChainInfoVariable, error) {
+	if len(data) > 0 {
+		shareChainInfo := new(ShareChainInfoVariable)
+		if err := ABIMergeMining.UnpackVariable(shareChainInfo, shareChainInfoVariableName, data); err != nil {
+			return nil, err
+		}
+		return shareChainInfo, nil
+	} else {
+		return nil, constants.ErrDataNonExistent
+	}
+}
+func GetShareChainInfoVariableVariable(context db.DB, id uint32) (*ShareChainInfoVariable, error) {
+	if data, err := context.Get(GetShareChainKey(id)); err != nil {
+		return nil, err
+	} else {
+		shareChainInfo, err := parseShareChainInfoVariable(data)
+		if err != nil {
+			return nil, err
+		}
+		shareChainInfo.Id = id
+		return shareChainInfo, nil
 	}
 }
 
@@ -247,6 +302,28 @@ func (b *BaseHeader) BlockHash() types.Hash {
 		Nonce:      b.Nonce,
 	}
 	return types.HexToHashPanic(blockHeader.BlockHash().String())
+}
+
+// BlockHash computes the block identifier hash for the given block header.
+func (b *BaseHeader) BlockHashChain() chainhash.Hash {
+	prevBlock, err := chainhash.NewHashFromStr(b.PrevBlock.String())
+	if err != nil {
+		return chainhash.Hash{}
+	}
+	merkleRoot, err := chainhash.NewHashFromStr(b.MerkleRoot.String())
+	if err != nil {
+		return chainhash.Hash{}
+	}
+
+	blockHeader := &wire.BlockHeader{
+		Version:    b.Version,
+		PrevBlock:  *prevBlock,
+		MerkleRoot: *merkleRoot,
+		Timestamp:  time.Unix(int64(b.Timestamp), 0),
+		Bits:       b.Bits,
+		Nonce:      b.Nonce,
+	}
+	return blockHeader.BlockHash()
 }
 
 type BlockHeaderVariable struct {

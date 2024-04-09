@@ -3,7 +3,11 @@ package implementation
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
+	"github.com/btcsuite/btcd/blockchain"
+	ecommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
+	"github.com/pkg/errors"
 	"github.com/zenon-network/go-zenon/chain/nom"
 	"github.com/zenon-network/go-zenon/common"
 	"github.com/zenon-network/go-zenon/common/crypto"
@@ -14,6 +18,7 @@ import (
 	"math/big"
 	"reflect"
 	"sort"
+	"time"
 )
 
 func CheckMergeMiningInitialized(context vm_context.AccountVmContext) (*definition.MergeMiningInfoVariable, error) {
@@ -68,7 +73,9 @@ func (p *SetInitialBitcoinBlockMethod) ValidateSendBlock(block *nom.AccountBlock
 	if err = definition.ABIMergeMining.UnpackMethod(param, p.MethodName, block.Data); err != nil {
 		return constants.ErrUnpackError
 	}
-	// todo validate input
+	if errPoW := CheckProofOfWork(*param); errPoW != nil {
+		return errPoW
+	}
 
 	if block.Amount.Sign() != 0 {
 		return constants.ErrInvalidTokenOrAmount
@@ -127,18 +134,17 @@ func (p *SetShareChainMethod) GetPlasma(plasmaTable *constants.PlasmaTable) (uin
 }
 func (p *SetShareChainMethod) ValidateSendBlock(block *nom.AccountBlock) error {
 	var err error
-	param := new(definition.BlockHeaderVariable)
-
+	param := new(definition.ShareChainInfoVariable)
 	if err = definition.ABIMergeMining.UnpackMethod(param, p.MethodName, block.Data); err != nil {
 		return constants.ErrUnpackError
 	}
 	// todo validate input
 
-	if block.Amount.Sign() <= 0 {
+	if block.Amount.Sign() > 0 {
 		return constants.ErrInvalidTokenOrAmount
 	}
 
-	block.Data, err = definition.ABIMergeMining.PackMethod(p.MethodName, param.Version, param.PrevBlock, param.MerkleRoot, param.Timestamp, param.Bits, param.Nonce, param.WorkSum)
+	block.Data, err = definition.ABIMergeMining.PackMethod(p.MethodName, param.Id, param.Difficulty, param.RewardMultiplier)
 	return err
 }
 func (p *SetShareChainMethod) ReceiveBlock(context vm_context.AccountVmContext, sendBlock *nom.AccountBlock) ([]*nom.AccountBlock, error) {
@@ -146,35 +152,96 @@ func (p *SetShareChainMethod) ReceiveBlock(context vm_context.AccountVmContext, 
 		return nil, err
 	}
 
-	_, headerChainInfo, err := CanPerformActionMergeMining(context)
+	mergeMiningInfo, _, err := CanPerformActionMergeMining(context)
 	if err != nil {
 		return nil, err
 	}
 
-	param := new(definition.BlockHeaderVariable)
-	err = definition.ABIMergeMining.UnpackMethod(param, p.MethodName, sendBlock.Data)
-	common.DealWithErr(err)
-	blockHash := param.BaseHeader.BlockHash()
-	if err := param.Hash.SetBytes(blockHash.Bytes()); err != nil {
-		return nil, constants.ErrForbiddenParam
+	if sendBlock.Address.String() != mergeMiningInfo.Administrator.String() {
+		return nil, constants.ErrPermissionDenied
 	}
 
-	// It means merge mining has not been initialised and the administrator must set the starting block
-	if reflect.DeepEqual(headerChainInfo.Tip.Bytes(), types.ZeroHash) || headerChainInfo.TipHeight == 0 || headerChainInfo.TipWorkSum.Cmp(big.NewInt(0)) == 0 {
-		headerChainInfo.Tip = param.Hash
-		headerChainInfo.TipHeight = param.Height
-		headerChainInfo.TipWorkSum.Set(param.WorkSum)
+	param := new(definition.ShareChainInfoVariable)
+	if err = definition.ABIMergeMining.UnpackMethod(param, p.MethodName, sendBlock.Data); err != nil {
+		return nil, constants.ErrUnpackError
+	}
+
+	securityInfo, err := definition.GetSecurityInfoVariable(context.Storage())
+	if err != nil {
+		return nil, err
+	}
+
+	paramsBytes := make([]byte, 4+32+4)
+	idBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(idBytes, param.Id)
+	paramsBytes = append(paramsBytes, ecommon.LeftPadBytes(idBytes, 4)...)
+	paramsBytes = append(paramsBytes, common.BigIntToBytes(param.Difficulty)...)
+	idBytes = make([]byte, 4)
+	binary.LittleEndian.PutUint32(idBytes, param.RewardMultiplier)
+	paramsBytes = append(paramsBytes, ecommon.LeftPadBytes(idBytes, 4)...)
+	idBytes = make([]byte, 0)
+
+	paramsHash := crypto.Hash(paramsBytes)
+	if timeChallengeInfo, errTimeChallenge := TimeChallenge(context, p.MethodName, paramsHash, securityInfo.SoftDelay); errTimeChallenge != nil {
+		return nil, errTimeChallenge
 	} else {
-
+		// if paramsHash is not zero it means we had a new challenge and we can't go further to save the change into local db
+		if !timeChallengeInfo.ParamsHash.IsZero() {
+			return nil, nil
+		}
 	}
 
-	common.DealWithErr(headerChainInfo.Save(context.Storage()))
-
+	// We just save the new share chain, same as editing it
+	common.DealWithErr(param.Save(context.Storage()))
 	return nil, nil
 }
 
 type AddBitcoinBlockHeaderMethod struct {
 	MethodName string
+}
+
+func CheckProofOfWork(header definition.BlockHeaderVariable) error {
+	hash := header.BlockHashChain()
+	targetDifficulty := blockchain.CompactToBig(header.Bits)
+
+	if targetDifficulty.Sign() <= 0 {
+		return constants.ErrTargetDifficultyLessThanZero
+	}
+	if blockchain.HashToBig(&hash).Cmp(targetDifficulty) > 0 {
+		return constants.ErrInvalidNonce
+	}
+	// The target difficulty must be less than the maximum allowed.
+	if targetDifficulty.Cmp(constants.MainPowLimit) > 0 {
+		return constants.ErrPowLimitExceeded
+	}
+	return nil
+}
+
+// CalcEasiestDifficulty calculates the easiest possible difficulty that a block
+// can have given starting difficulty bits and a duration.  It is mainly used to
+// verify that claimed proof of work by a block is sane as compared to a
+// known good checkpoint.
+func CalcEasiestDifficulty(bits uint32, duration time.Duration) uint32 {
+	// Convert types used in the calculations below.
+	durationVal := int64(duration / time.Second)
+	adjustmentFactor := big.NewInt(constants.RetargetAdjustmentFactor)
+
+	// Since easier difficulty equates to higher numbers, the easiest
+	// difficulty for a given duration is the largest value possible given
+	// the number of retargets for the duration and starting difficulty
+	// multiplied by the max adjustment factor.
+	newTarget := blockchain.CompactToBig(bits)
+	for durationVal > 0 && newTarget.Cmp(constants.MainPowLimit) < 0 {
+		newTarget.Mul(newTarget, adjustmentFactor)
+		durationVal -= constants.MaxRetargetTimespan
+	}
+
+	// Limit new value to the proof of work limit.
+	if newTarget.Cmp(constants.MainPowLimit) > 0 {
+		newTarget.Set(constants.MainPowLimit)
+	}
+
+	return blockchain.BigToCompact(newTarget)
 }
 
 func (p *AddBitcoinBlockHeaderMethod) GetPlasma(plasmaTable *constants.PlasmaTable) (uint64, error) {
@@ -187,9 +254,12 @@ func (p *AddBitcoinBlockHeaderMethod) ValidateSendBlock(block *nom.AccountBlock)
 	if err = definition.ABIMergeMining.UnpackMethod(param, p.MethodName, block.Data); err != nil {
 		return constants.ErrUnpackError
 	}
-	// todo validate input
 
-	if block.Amount.Sign() <= 0 {
+	if errPoW := CheckProofOfWork(*param); errPoW != nil {
+		return errPoW
+	}
+
+	if block.Amount.Sign() > 0 {
 		return constants.ErrInvalidTokenOrAmount
 	}
 
@@ -209,19 +279,49 @@ func (p *AddBitcoinBlockHeaderMethod) ReceiveBlock(context vm_context.AccountVmC
 	param := new(definition.BlockHeaderVariable)
 	err = definition.ABIMergeMining.UnpackMethod(param, p.MethodName, sendBlock.Data)
 	common.DealWithErr(err)
-	blockHash := param.BaseHeader.BlockHash()
-	if err := param.Hash.SetBytes(blockHash.Bytes()); err != nil {
+
+	prevBlock, err := definition.GetBlockHeaderVariable(context.Storage(), param.PrevBlock)
+	if err != nil {
+		if !errors.Is(err, constants.ErrDataNonExistent) {
+			common.DealWithErr(err)
+		} else {
+			return nil, constants.ErrPrevBlockNonExistent
+		}
+	}
+
+	// todo better validate timestamp?
+	if param.Timestamp < prevBlock.Timestamp {
+		return nil, constants.ErrForbiddenParam
+	}
+	// todo is this correct?
+	easiestDifficulty := CalcEasiestDifficulty(prevBlock.Bits, time.Duration(int64(param.Timestamp-prevBlock.Timestamp)))
+	if easiestDifficulty > param.Bits {
+		return nil, constants.ErrDifficultyLessThanMin
+	}
+
+	hash := param.BlockHash()
+	if err := param.Hash.SetBytes(hash.Bytes()); err != nil {
 		return nil, constants.ErrForbiddenParam
 	}
 
-	// It means merge mining has not been initialised and the administrator must set the starting block
-	if reflect.DeepEqual(headerChainInfo.Tip.Bytes(), types.ZeroHash) || headerChainInfo.TipHeight == 0 || headerChainInfo.TipWorkSum.Cmp(big.NewInt(0)) == 0 {
-		headerChainInfo.Tip = param.Hash
-		headerChainInfo.TipHeight = param.Height
-		headerChainInfo.TipWorkSum.Set(param.WorkSum)
-	} else {
-
+	// We do not allow duplicate blocks
+	if _, err = definition.GetBlockHeaderVariable(context.Storage(), hash); err != nil {
+		if !errors.Is(err, constants.ErrDataNonExistent) {
+			common.DealWithErr(err)
+		}
 	}
+
+	workSum := big.NewInt(0).Add(prevBlock.WorkSum, blockchain.CalcWork(param.Bits))
+	// We found a block with more accumulated pow then the previous max
+	if workSum.Cmp(headerChainInfo.TipWorkSum) > 0 {
+		headerChainInfo.Tip = hash
+		headerChainInfo.TipHeight = prevBlock.Height + 1
+		headerChainInfo.TipWorkSum.Set(workSum)
+		common.DealWithErr(headerChainInfo.Save(context.Storage()))
+	}
+	param.WorkSum.Set(workSum)
+	param.Height = prevBlock.Height + 1
+	common.DealWithErr(param.Save(context.Storage()))
 
 	common.DealWithErr(headerChainInfo.Save(context.Storage()))
 
@@ -274,12 +374,12 @@ func (p *NominateGuardiansMergeMiningMethod) ReceiveBlock(context vm_context.Acc
 		return nil, err
 	}
 
-	headerChainInfo, err := definition.GetMergeMiningInfoVariableVariable(context.Storage())
+	mergeMiningInfo, err := definition.GetMergeMiningInfoVariableVariable(context.Storage())
 	if err != nil {
 		return nil, err
 	}
 
-	if sendBlock.Address.String() != headerChainInfo.Administrator.String() {
+	if sendBlock.Address.String() != mergeMiningInfo.Administrator.String() {
 		return nil, constants.ErrPermissionDenied
 	}
 
@@ -358,12 +458,12 @@ func (p *ProposeAdministratorMergeMiningMethod) ReceiveBlock(context vm_context.
 		return nil, constants.ErrUnpackError
 	}
 
-	headerChainInfo, err := definition.GetMergeMiningInfoVariableVariable(context.Storage())
+	mergeMiningInfo, err := definition.GetMergeMiningInfoVariableVariable(context.Storage())
 	if err != nil {
 		return nil, err
 	}
 
-	if !headerChainInfo.Administrator.IsZero() {
+	if !mergeMiningInfo.Administrator.IsZero() {
 		return nil, constants.ErrNotEmergency
 	}
 
@@ -400,10 +500,10 @@ func (p *ProposeAdministratorMergeMiningMethod) ReceiveBlock(context vm_context.
 				} else if votedAddress.IsZero() {
 					return nil, constants.ErrForbiddenParam
 				}
-				if errSet := headerChainInfo.Administrator.SetBytes(votedAddress.Bytes()); errSet != nil {
+				if errSet := mergeMiningInfo.Administrator.SetBytes(votedAddress.Bytes()); errSet != nil {
 					return nil, errSet
 				}
-				common.DealWithErr(headerChainInfo.Save(context.Storage()))
+				common.DealWithErr(mergeMiningInfo.Save(context.Storage()))
 				for idx, _ := range securityInfo.GuardiansVotes {
 					securityInfo.GuardiansVotes[idx] = types.Address{}
 				}
@@ -445,7 +545,7 @@ func (p *EmergencyMergeMiningMethod) ReceiveBlock(context vm_context.AccountVmCo
 		return nil, err
 	}
 
-	headerChainInfo, err := definition.GetMergeMiningInfoVariableVariable(context.Storage())
+	mergeMiningInfo, err := definition.GetMergeMiningInfoVariableVariable(context.Storage())
 	if err != nil {
 		return nil, err
 	}
@@ -454,14 +554,14 @@ func (p *EmergencyMergeMiningMethod) ReceiveBlock(context vm_context.AccountVmCo
 		return nil, err
 	}
 
-	if sendBlock.Address.String() != headerChainInfo.Administrator.String() {
+	if sendBlock.Address.String() != mergeMiningInfo.Administrator.String() {
 		return nil, constants.ErrPermissionDenied
 	}
 
-	if errSet := headerChainInfo.Administrator.SetBytes(types.ZeroAddress.Bytes()); errSet != nil {
+	if errSet := mergeMiningInfo.Administrator.SetBytes(types.ZeroAddress.Bytes()); errSet != nil {
 		return nil, errSet
 	}
-	common.DealWithErr(headerChainInfo.Save(context.Storage()))
+	common.DealWithErr(mergeMiningInfo.Save(context.Storage()))
 	return nil, nil
 }
 
@@ -505,12 +605,12 @@ func (p *ChangeAdministratorMergeMiningMethod) ReceiveBlock(context vm_context.A
 		return nil, err
 	}
 
-	headerChainInfo, err := definition.GetMergeMiningInfoVariableVariable(context.Storage())
+	mergeMiningInfo, err := definition.GetMergeMiningInfoVariableVariable(context.Storage())
 	if err != nil {
 		return nil, err
 	}
 
-	if sendBlock.Address.String() != headerChainInfo.Administrator.String() {
+	if sendBlock.Address.String() != mergeMiningInfo.Administrator.String() {
 		return nil, constants.ErrPermissionDenied
 	}
 
@@ -529,10 +629,10 @@ func (p *ChangeAdministratorMergeMiningMethod) ReceiveBlock(context vm_context.A
 		}
 	}
 
-	if errSet := headerChainInfo.Administrator.SetBytes(address.Bytes()); errSet != nil {
+	if errSet := mergeMiningInfo.Administrator.SetBytes(address.Bytes()); errSet != nil {
 		return nil, err
 	}
-	common.DealWithErr(headerChainInfo.Save(context.Storage()))
+	common.DealWithErr(mergeMiningInfo.Save(context.Storage()))
 	return nil, nil
 }
 
@@ -579,7 +679,7 @@ func (p *ChangeTssECDSAPubKeyMergeMiningMethod) ReceiveBlock(context vm_context.
 		return nil, err
 	}
 
-	headerChainInfo, err := definition.GetMergeMiningInfoVariableVariable(context.Storage())
+	mergeMiningInfo, err := definition.GetMergeMiningInfoVariableVariable(context.Storage())
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +694,7 @@ func (p *ChangeTssECDSAPubKeyMergeMiningMethod) ReceiveBlock(context vm_context.
 	dPubKeyBytes = append(dPubKeyBytes, Y.Bytes()...)
 	newDecompressedPubKey := base64.StdEncoding.EncodeToString(dPubKeyBytes)
 
-	if sendBlock.Address.String() != headerChainInfo.Administrator.String() {
+	if sendBlock.Address.String() != mergeMiningInfo.Administrator.String() {
 		return nil, constants.ErrPermissionDenied
 	} else {
 		securityInfo, err := definition.GetSecurityInfoVariable(context.Storage())
@@ -612,10 +712,10 @@ func (p *ChangeTssECDSAPubKeyMergeMiningMethod) ReceiveBlock(context vm_context.
 		}
 	}
 
-	headerChainInfo.CompressedTssECDSAPubKey = param.PubKey
-	headerChainInfo.DecompressedTssECDSAPubKey = newDecompressedPubKey
+	mergeMiningInfo.CompressedTssECDSAPubKey = param.PubKey
+	mergeMiningInfo.DecompressedTssECDSAPubKey = newDecompressedPubKey
 
-	common.DealWithErr(headerChainInfo.Save(context.Storage()))
+	common.DealWithErr(mergeMiningInfo.Save(context.Storage()))
 	return nil, nil
 }
 

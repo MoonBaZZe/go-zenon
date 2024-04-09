@@ -103,6 +103,11 @@ var (
 	ErrInvalidRewards     = errors.New("invalid liquidity stake rewards")
 
 	// Merge Mining
-	ErrMergeMiningNotInitialized = errors.New("merge mining info is not initialized")
-	ErrHeaderChainNotInitialized = errors.New("header chain info is not initialized")
+	ErrMergeMiningNotInitialized    = errors.New("merge mining info is not initialized")
+	ErrHeaderChainNotInitialized    = errors.New("header chain info is not initialized")
+	ErrPrevBlockNonExistent         = errors.New("prev block non existend")
+	ErrInvalidNonce                 = errors.New("invalid nonce")
+	ErrTargetDifficultyLessThanZero = errors.New("target difficulty must be larger than 0")
+	ErrDifficultyLessThanMin        = errors.New("target difficulty less than min of prev block")
+	ErrPowLimitExceeded             = errors.New("pow limit exceeded")
 )

@@ -40,6 +40,15 @@ func (a *MergeMiningApi) GetHeaderChainInfo() (*definition.HeaderChainInfoVariab
 	return definition.GetHeaderChainInfoVariableVariable(context.Storage())
 }
 
+func (a *MergeMiningApi) GetShareChainInfo(id uint32) (*definition.ShareChainInfoVariable, error) {
+	_, context, err := api.GetFrontierContext(a.chain, types.MergeMiningContract)
+	if err != nil {
+		return nil, err
+	}
+
+	return definition.GetShareChainInfoVariableVariable(context.Storage(), id)
+}
+
 func (a *MergeMiningApi) GetBlockHeader(hash types.Hash) (*definition.BlockHeaderVariable, error) {
 	_, context, err := api.GetFrontierContext(a.chain, types.MergeMiningContract)
 	if err != nil {
@@ -71,7 +80,7 @@ func (a *MergeMiningApi) GetTimeChallengesInfoMergeMining() (*TimeChallengesList
 
 	ans := make([]*definition.TimeChallengeInfo, 0)
 	// todo add the method that adds a new share chain
-	methods := []string{"NominateGuardians", "ChangeTssECDSAPubKey", "ChangeAdministrator", "SetTokenPair"}
+	methods := []string{"NominateGuardians", "ChangeTssECDSAPubKey", "ChangeAdministrator", "SetShareChain"}
 
 	for _, m := range methods {
 		timeC, err := definition.GetTimeChallengeInfoVariable(context.Storage(), m)

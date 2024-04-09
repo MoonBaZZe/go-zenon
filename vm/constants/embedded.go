@@ -3,6 +3,7 @@ package constants
 import (
 	"github.com/zenon-network/go-zenon/common/types"
 	"math/big"
+	"time"
 
 	"github.com/zenon-network/go-zenon/common"
 )
@@ -94,6 +95,18 @@ var (
 	/// === Merge Mining constants ===
 
 	InitialMergeMiningAdministrator = types.ParseAddressPanic("z1qr9vtwsfr2n0nsxl2nfh6l5esqjh2wfj85cfq9")
+
+	// bigOne is 1 represented as a big.Int.  It is defined here to avoid
+	// the overhead of creating it multiple times.
+	bigOne = big.NewInt(1)
+
+	// MainPowLimit is the highest proof of work value a Bitcoin block can
+	// have for the main network.  It is the value 2^224 - 1.
+	MainPowLimit = new(big.Int).Sub(new(big.Int).Lsh(bigOne, 224), bigOne)
+
+	RetargetAdjustmentFactor = int64(4) // 25% less, 400% more
+	TargetTimespan           = time.Hour * 24 * 14
+	MaxRetargetTimespan      = int64(TargetTimespan/time.Second) * RetargetAdjustmentFactor
 
 	/// === Bridge constants ===
 

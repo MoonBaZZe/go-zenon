@@ -1,6 +1,8 @@
 package tests
 
 import (
+	"fmt"
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/pkg/errors"
 	g "github.com/zenon-network/go-zenon/chain/genesis/mock"
 	"github.com/zenon-network/go-zenon/chain/nom"
@@ -76,7 +78,6 @@ func mergeMiningStep1(t *testing.T, z mock.MockZenon) {
 	mergeMiningStep0(t, z)
 
 	mergeMiningAPI := embedded.NewMergeMiningApi(z)
-	constants.MinGuardians = 4
 	securityInfo, err := mergeMiningAPI.GetSecurityInfo()
 	common.DealWithErr(err)
 
@@ -122,7 +123,6 @@ func mergeMiningStep2(t *testing.T, z mock.MockZenon) {
 	mergeMiningStep1(t, z)
 
 	mergeMiningAPI := embedded.NewMergeMiningApi(z)
-
 	securityInfo, err := mergeMiningAPI.GetSecurityInfo()
 	common.DealWithErr(err)
 	tssPubKey := "AsAQx1M3LVXCuozDOqO5b9adj/PItYgwZFG/xTDBiZzT" // priv tuSwrTEUyJI1/3y5J8L8DSjzT/AQG2IK3JG+93qhhhI=
@@ -153,36 +153,12 @@ func mergeMiningStep2(t *testing.T, z mock.MockZenon) {
 }`)
 }
 
+// Activate spork
+// Sets guardians
+// Sets tss ecdsa public key
 // Initialize starting block
 func mergeMiningStep3(t *testing.T, z mock.MockZenon) {
 	mergeMiningStep2(t, z)
-
-	//prevBlockHash, _ := chainhash.NewHashFromStr("0000000000000000000090937d63bfb7b27a1cf1073d6bd309195c62753c87b3")
-	//merkleRoot, _ := chainhash.NewHashFromStr("a76c7189bc34c9614d8848cc4074037db2f7cab329f646a23ad27a5628a573b1")
-	//bh := wire.BlockHeader{
-	//	Version:    644612096,
-	//	PrevBlock:  *prevBlockHash,
-	//	MerkleRoot: *merkleRoot,
-	//	Timestamp:  time.Unix(1712573645, 0),
-	//	Bits:       386097875,
-	//	Nonce:      1731415048,
-	//}
-	//fmt.Println("Computed from wire: ", bh.BlockHash().String())
-	//
-	//bhh := definition.BaseHeader{
-	//	Version:    644612096,
-	//	PrevBlock:  types.HexToHashPanic("0000000000000000000090937d63bfb7b27a1cf1073d6bd309195c62753c87b3"),
-	//	MerkleRoot: types.HexToHashPanic("a76c7189bc34c9614d8848cc4074037db2f7cab329f646a23ad27a5628a573b1"),
-	//	Timestamp:  1712573645,
-	//	Bits:       386097875,
-	//	Nonce:      1731415048,
-	//}
-	//fmt.Println("Computed from base header: ", bhh.BlockHash().String())
-	//return
-	workSum, ok := big.NewInt(0).SetString("83126997340024", 10)
-	if !ok {
-		common.DealWithErr(errors.New("work conversion error"))
-	}
 
 	blockHash := types.HexToHashPanic("00000000000000000001052825fecaf9987861781cb11af3639603a381db34e4")
 	blockHeader := definition.BlockHeaderVariable{
@@ -196,7 +172,7 @@ func mergeMiningStep3(t *testing.T, z mock.MockZenon) {
 		},
 		Hash:    blockHash,
 		Height:  838288,
-		WorkSum: workSum,
+		WorkSum: blockchain.CalcWork(386097875),
 	}
 
 	defer z.CallContract(setInitialBitcoinBlockHeader(g.User5.Address, blockHeader)).Error(t, nil)
@@ -207,7 +183,7 @@ func mergeMiningStep3(t *testing.T, z mock.MockZenon) {
 {
 	"tip": "00000000000000000001052825fecaf9987861781cb11af3639603a381db34e4",
 	"tipHeight": 838288,
-	"tipWorkSum": 83126997340024
+	"tipWorkSum": 357033182884110630099744
 }`)
 
 	common.Json(mergeMiningAPI.GetBlockHeader(blockHash)).Equals(t, `
@@ -219,8 +195,81 @@ func mergeMiningStep3(t *testing.T, z mock.MockZenon) {
 	"bits": 386097875,
 	"nonce": 1731415048,
 	"height": 838288,
-	"workSum": 83126997340024,
+	"workSum": 357033182884110630099744,
 	"hash": "00000000000000000001052825fecaf9987861781cb11af3639603a381db34e4"
+}`)
+}
+
+// Activate spork
+// Sets guardians
+// Sets tss ecdsa public key
+// Initialize starting block
+// Set share chain info
+func mergeMiningStep4(t *testing.T, z mock.MockZenon) {
+	mergeMiningStep3(t, z)
+
+	id := uint32(1)
+	difficulty := big.NewInt(10000)
+	rewardMultiplier := uint32(1)
+
+	mergeMiningAPI := embedded.NewMergeMiningApi(z)
+	securityInfo, err := mergeMiningAPI.GetSecurityInfo()
+	common.DealWithErr(err)
+	setShareChain(t, z, g.User5.Address, id, difficulty, rewardMultiplier, securityInfo.SoftDelay)
+
+	common.Json(mergeMiningAPI.GetShareChainInfo(1)).Equals(t, `
+{
+	"id": 1,
+	"difficulty": 10000,
+	"rewardMultiplier": 1
+}`)
+}
+
+func mergeMiningStep5(t *testing.T, z mock.MockZenon) {
+	mergeMiningStep4(t, z)
+
+	workSum, ok := big.NewInt(0).SetString("83126997340024", 10)
+	if !ok {
+		common.DealWithErr(errors.New("work conversion error"))
+	}
+
+	blockHash := types.HexToHashPanic("000000000000000000000142eb893b9b422b5cf60ab352c9a8a2166f0c33c3d2")
+	blockHeader := definition.BlockHeaderVariable{
+		BaseHeader: definition.BaseHeader{
+			Version:    551550976,
+			PrevBlock:  types.HexToHashPanic("00000000000000000001052825fecaf9987861781cb11af3639603a381db34e4"),
+			MerkleRoot: types.HexToHashPanic("7fad6c9b3fd2af85f631b5c0e13d6653a9e5ff268c60a78138a98da5e4cddf69"),
+			Timestamp:  1712575802,
+			Bits:       386097875,
+			Nonce:      2118989352,
+		},
+		Hash:    blockHash,
+		Height:  838289,
+		WorkSum: workSum,
+	}
+	fmt.Println(blockHeader.BlockHash().String())
+	defer z.CallContract(addBitcoinBlockHeader(g.User5.Address, blockHeader)).Error(t, nil)
+	insertMomentums(z, 2)
+
+	mergeMiningAPI := embedded.NewMergeMiningApi(z)
+	common.Json(mergeMiningAPI.GetHeaderChainInfo()).Equals(t, `
+{
+	"tip": "000000000000000000000142eb893b9b422b5cf60ab352c9a8a2166f0c33c3d2",
+	"tipHeight": 838289,
+	"tipWorkSum": 714066365768221260199488
+}`)
+
+	common.Json(mergeMiningAPI.GetBlockHeader(blockHash)).Equals(t, `
+{
+	"version": 551550976,
+	"prevBlock": "00000000000000000001052825fecaf9987861781cb11af3639603a381db34e4",
+	"merkleRoot": "7fad6c9b3fd2af85f631b5c0e13d6653a9e5ff268c60a78138a98da5e4cddf69",
+	"timestamp": 1712575802,
+	"bits": 386097875,
+	"nonce": 2118989352,
+	"height": 838289,
+	"workSum": 714066365768221260199488,
+	"hash": "000000000000000000000142eb893b9b422b5cf60ab352c9a8a2166f0c33c3d2"
 }`)
 }
 
@@ -229,7 +278,7 @@ func TestMergeMining(t *testing.T) {
 	defer z.StopPanic()
 	//defer z.SaveLogs(common.EmbeddedLogger).Equals(t, ``)
 
-	mergeMiningStep3(t, z)
+	mergeMiningStep5(t, z)
 }
 
 func setInitialBitcoinBlockHeader(from types.Address, blockHeader definition.BlockHeaderVariable) *nom.AccountBlock {
@@ -268,8 +317,35 @@ func addBitcoinBlockHeader(from types.Address, blockHeader definition.BlockHeade
 			blockHeader.Timestamp,
 			blockHeader.Bits,
 			blockHeader.Nonce,
+			blockHeader.WorkSum,
 		),
 	}
+}
+
+func setShareChainStep(administrator types.Address, id uint32, difficulty *big.Int, rewardMultiplier uint32) *nom.AccountBlock {
+	return &nom.AccountBlock{
+		Address:       administrator,
+		ToAddress:     types.MergeMiningContract,
+		TokenStandard: types.ZnnTokenStandard,
+		Amount:        big.NewInt(0),
+		Data: definition.ABIMergeMining.PackMethodPanic(definition.SetShareChainMethodName,
+			id,
+			difficulty,
+			rewardMultiplier,
+		),
+	}
+}
+
+func setShareChain(t *testing.T, z mock.MockZenon, administrator types.Address, id uint32, difficulty *big.Int, rewardMultiplier uint32, delay uint64) {
+	defer z.CallContract(setShareChainStep(administrator, id, difficulty, rewardMultiplier)).Error(t, nil)
+	insertMomentums(z, 2)
+
+	frMom, err := z.Chain().GetFrontierMomentumStore().GetFrontierMomentum()
+	common.DealWithErr(err)
+	z.InsertMomentumsTo(frMom.Height + delay + 2)
+
+	defer z.CallContract(setShareChainStep(administrator, id, difficulty, rewardMultiplier)).Error(t, nil)
+	insertMomentums(z, 2)
 }
 
 func nominateGuardiansStepMergeMining(administrator types.Address, guardians []types.Address) *nom.AccountBlock {

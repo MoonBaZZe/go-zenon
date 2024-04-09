@@ -45,6 +45,7 @@ func getMergeMining() map[types.Address]*embeddedImplementation {
 		map[string]Method{
 			cabi.AddBitcoinBlockHeaderMethodName:        &implementation.AddBitcoinBlockHeaderMethod{cabi.AddBitcoinBlockHeaderMethodName},
 			cabi.SetInitialBitcoinBlockHeaderMethodName: &implementation.SetInitialBitcoinBlockMethod{cabi.SetInitialBitcoinBlockHeaderMethodName},
+			cabi.SetShareChainMethodName:                &implementation.SetShareChainMethod{cabi.SetShareChainMethodName},
 			cabi.NominateGuardiansMethodName:            &implementation.NominateGuardiansMergeMiningMethod{cabi.NominateGuardiansMethodName},
 			cabi.ProposeAdministratorMethodName:         &implementation.ProposeAdministratorMergeMiningMethod{cabi.ProposeAdministratorMethodName},
 			cabi.EmergencyMethodName:                    &implementation.EmergencyMergeMiningMethod{cabi.EmergencyMethodName},
