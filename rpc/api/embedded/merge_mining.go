@@ -40,7 +40,7 @@ func (a *MergeMiningApi) GetHeaderChainInfo() (*definition.HeaderChainInfoVariab
 	return definition.GetHeaderChainInfoVariableVariable(context.Storage())
 }
 
-func (a *MergeMiningApi) GetShareChainInfo(id uint32) (*definition.ShareChainInfoVariable, error) {
+func (a *MergeMiningApi) GetShareChainInfo(id uint8) (*definition.ShareChainInfoVariable, error) {
 	_, context, err := api.GetFrontierContext(a.chain, types.MergeMiningContract)
 	if err != nil {
 		return nil, err

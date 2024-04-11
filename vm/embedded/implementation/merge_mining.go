@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
+	"fmt"
 	"github.com/btcsuite/btcd/blockchain"
 	ecommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
@@ -73,7 +74,7 @@ func (p *SetInitialBitcoinBlockMethod) ValidateSendBlock(block *nom.AccountBlock
 	if err = definition.ABIMergeMining.UnpackMethod(param, p.MethodName, block.Data); err != nil {
 		return constants.ErrUnpackError
 	}
-	if errPoW := CheckProofOfWork(*param); errPoW != nil {
+	if errPoW := CheckProofOfWork(*param, param.Bits); errPoW != nil {
 		return errPoW
 	}
 
@@ -146,7 +147,7 @@ func (p *SetShareChainMethod) ValidateSendBlock(block *nom.AccountBlock) error {
 		return constants.ErrInvalidTokenOrAmount
 	}
 
-	block.Data, err = definition.ABIMergeMining.PackMethod(p.MethodName, param.Id, param.Difficulty, param.RewardMultiplier)
+	block.Data, err = definition.ABIMergeMining.PackMethod(p.MethodName, param.Id, param.Bits, param.RewardMultiplier)
 	return err
 }
 func (p *SetShareChainMethod) ReceiveBlock(context vm_context.AccountVmContext, sendBlock *nom.AccountBlock) ([]*nom.AccountBlock, error) {
@@ -173,11 +174,12 @@ func (p *SetShareChainMethod) ReceiveBlock(context vm_context.AccountVmContext, 
 		return nil, err
 	}
 
-	paramsBytes := make([]byte, 4+32+4)
+	paramsBytes := make([]byte, 1+4+4)
 	idBytes := make([]byte, 4)
-	binary.LittleEndian.PutUint32(idBytes, param.Id)
+	paramsBytes = append(paramsBytes, param.Id)
+	idBytes = make([]byte, 4)
+	binary.LittleEndian.PutUint32(idBytes, param.Bits)
 	paramsBytes = append(paramsBytes, ecommon.LeftPadBytes(idBytes, 4)...)
-	paramsBytes = append(paramsBytes, common.BigIntToBytes(param.Difficulty)...)
 	idBytes = make([]byte, 4)
 	binary.LittleEndian.PutUint32(idBytes, param.RewardMultiplier)
 	paramsBytes = append(paramsBytes, ecommon.LeftPadBytes(idBytes, 4)...)
@@ -198,17 +200,15 @@ func (p *SetShareChainMethod) ReceiveBlock(context vm_context.AccountVmContext, 
 	return nil, nil
 }
 
-type AddBitcoinBlockHeaderMethod struct {
-	MethodName string
-}
-
-func CheckProofOfWork(header definition.BlockHeaderVariable) error {
+func CheckProofOfWork(header definition.BlockHeaderVariable, targetBits uint32) error {
 	hash := header.BlockHashChain()
-	targetDifficulty := blockchain.CompactToBig(header.Bits)
-
+	fmt.Println(hash.String())
+	targetDifficulty := blockchain.CompactToBig(targetBits)
+	fmt.Println(targetDifficulty.String())
 	if targetDifficulty.Sign() <= 0 {
 		return constants.ErrTargetDifficultyLessThanZero
 	}
+	fmt.Println(blockchain.HashToBig(&hash).String())
 	if blockchain.HashToBig(&hash).Cmp(targetDifficulty) > 0 {
 		return constants.ErrInvalidNonce
 	}
@@ -246,6 +246,10 @@ func CalcEasiestDifficulty(bits uint32, duration time.Duration) uint32 {
 	return blockchain.BigToCompact(newTarget)
 }
 
+type AddBitcoinBlockHeaderMethod struct {
+	MethodName string
+}
+
 func (p *AddBitcoinBlockHeaderMethod) GetPlasma(plasmaTable *constants.PlasmaTable) (uint64, error) {
 	return plasmaTable.EmbeddedSimple, nil
 }
@@ -257,7 +261,7 @@ func (p *AddBitcoinBlockHeaderMethod) ValidateSendBlock(block *nom.AccountBlock)
 		return constants.ErrUnpackError
 	}
 
-	if errPoW := CheckProofOfWork(*param); errPoW != nil {
+	if errPoW := CheckProofOfWork(*param, param.Bits); errPoW != nil {
 		return errPoW
 	}
 
@@ -328,6 +332,93 @@ func (p *AddBitcoinBlockHeaderMethod) ReceiveBlock(context vm_context.AccountVmC
 	common.DealWithErr(param.Save(context.Storage()))
 
 	common.DealWithErr(headerChainInfo.Save(context.Storage()))
+	return nil, nil
+}
+
+type AddShareMethod struct {
+	MethodName string
+}
+
+func (p *AddShareMethod) GetPlasma(plasmaTable *constants.PlasmaTable) (uint64, error) {
+	return plasmaTable.EmbeddedSimple, nil
+}
+func (p *AddShareMethod) ValidateSendBlock(block *nom.AccountBlock) error {
+	var err error
+	param := new(definition.Share)
+
+	if err = definition.ABIMergeMining.UnpackMethod(param, p.MethodName, block.Data); err != nil {
+		return constants.ErrUnpackError
+	}
+
+	if block.Amount.Sign() > 0 {
+		return constants.ErrInvalidTokenOrAmount
+	}
+
+	block.Data, err = definition.ABIMergeMining.PackMethod(p.MethodName, param.ShareChainId, param.Version, param.PrevBlock, param.MerkleRoot, param.Timestamp, param.Nonce,
+		param.Proof, param.Prooff, param.Proofff, param.Prooffff, param.AdditionalData)
+	return err
+}
+func (p *AddShareMethod) ReceiveBlock(context vm_context.AccountVmContext, sendBlock *nom.AccountBlock) ([]*nom.AccountBlock, error) {
+	if err := p.ValidateSendBlock(sendBlock); err != nil {
+		return nil, err
+	}
+
+	_, headerChainInfo, err := CanPerformActionMergeMining(context)
+	if err != nil {
+		return nil, err
+	}
+
+	param := new(definition.Share)
+	err = definition.ABIMergeMining.UnpackMethod(param, p.MethodName, sendBlock.Data)
+	common.DealWithErr(err)
+
+	shareChainInfo, err := definition.GetShareChainInfoVariableVariable(context.Storage(), param.ShareChainId)
+	if err != nil {
+		if !errors.Is(err, constants.ErrDataNonExistent) {
+			common.DealWithErr(err)
+		} else {
+			return nil, constants.ErrShareChainNonExistent
+		}
+	}
+
+	prevBlock, err := definition.GetBlockHeaderVariable(context.Storage(), param.PrevBlock)
+	if err != nil {
+		if !errors.Is(err, constants.ErrDataNonExistent) {
+			common.DealWithErr(err)
+		} else {
+			return nil, constants.ErrPrevBlockNonExistent
+		}
+	}
+	// Share is too far in the past
+	if prevBlock.Height+1 < headerChainInfo.TipHeight {
+		return nil, constants.ErrForbiddenParam
+	}
+
+	// ! If the timestamp is in the far future, one could get away with a low difficulty and spam blocks
+	// todo better validate timestamp?
+	if param.Timestamp < prevBlock.Timestamp {
+		return nil, constants.ErrForbiddenParam
+	}
+
+	shareChainHeader := definition.BlockHeaderVariable{
+		BaseHeader: definition.BaseHeader{
+			Version:    param.Version,
+			PrevBlock:  param.PrevBlock,
+			MerkleRoot: param.MerkleRoot,
+			Timestamp:  param.Timestamp,
+			Bits:       prevBlock.Bits,
+			Nonce:      param.Nonce,
+		},
+		Height:  0,
+		WorkSum: nil,
+		Hash:    types.Hash{},
+	}
+
+	if err := CheckProofOfWork(shareChainHeader, shareChainInfo.Bits); err != nil {
+		return nil, err
+	}
+
+	// Add pow to this address
 	return nil, nil
 }
 

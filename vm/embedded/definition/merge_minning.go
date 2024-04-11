@@ -1,7 +1,6 @@
 package definition
 
 import (
-	"encoding/binary"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/zenon-network/go-zenon/common"
@@ -28,8 +27,8 @@ const (
 		]},
 
 		{"type":"function","name":"SetShareChain","inputs":[
-			{"name":"id","type":"uint32"},
-			{"name":"difficulty","type":"uint256"},
+			{"name":"id","type":"uint8"},
+			{"name":"bits","type":"uint32"},
 			{"name":"rewardMultiplier","type":"uint32"}
 		]},
 
@@ -40,6 +39,20 @@ const (
 			{"name":"timestamp","type":"uint32"},
 			{"name":"bits","type":"uint32"},
 			{"name":"nonce","type":"uint32"}
+		]},
+
+		{"type":"function","name":"AddShare", "inputs":[
+			{"name":"shareChainId","type":"uint8"},
+			{"name":"version","type":"int32"},
+			{"name":"prevBlock","type":"hash"},
+			{"name":"merkleRoot","type":"hash"},
+			{"name":"timestamp","type":"uint32"},
+			{"name":"nonce","type":"uint32"},
+			{"name":"proof","type":"hash"},
+			{"name":"prooff","type":"hash"},
+			{"name":"proofff","type":"hash"},
+			{"name":"prooffff","type":"hash"},
+			{"name":"additionalData","type":"hash"}
 		]},
 
 		{"type":"function","name":"Emergency","inputs":[]},
@@ -75,7 +88,7 @@ const (
 		]},
 
 		{"type":"variable","name":"shareChainInfo","inputs":[
-			{"name":"difficulty","type":"uint256"},
+			{"name":"bits","type":"uint32"},
 			{"name":"rewardMultiplier","type":"uint32"}
 		]},
 
@@ -88,6 +101,21 @@ const (
 			{"name":"nonce","type":"uint32"},
 			{"name":"height","type":"uint32"},
 			{"name":"workSum","type":"uint256"}
+		]},
+
+		{"type":"variable","name":"share","inputs":[
+			{"name":"shareChainId","type":"uint8"},
+			{"name":"witness","type":"bool"},
+			{"name":"version","type":"int32"},
+			{"name":"prevBlock","type":"hash"},
+			{"name":"merkleRoot","type":"hash"},
+			{"name":"timestamp","type":"uint32"},
+			{"name":"nonce","type":"uint32"},
+			{"name":"proof","type":"hash"},
+			{"name":"prooff","type":"hash"},
+			{"name":"proofff","type":"hash"},
+			{"name":"prooffff","type":"hash"},
+			{"name":"additionalData","type":"hash"}
 		]}
 	]`
 
@@ -95,11 +123,13 @@ const (
 	AddBitcoinBlockHeaderMethodName        = "AddBitcoinBlockHeader"
 	SetMergeMiningMetadataMethodName       = "SetMergeMiningMetadata"
 	SetShareChainMethodName                = "SetShareChain"
+	AddShareMethodName                     = "AddShare"
 
 	mergeMiningInfoVariableName = "mergeMiningInfo"
 	headerChainInfoVariableName = "headerChainInfo"
 	shareChainInfoVariableName  = "shareChainInfo"
 	blockHeaderVariableName     = "blockHeader"
+	shareVariableName           = "share"
 )
 
 var (
@@ -108,8 +138,24 @@ var (
 	MergeMiningInfoPrefix = []byte{1}
 	HeaderChainInfoPrefix = []byte{2}
 	ShareChainInfoPrefix  = []byte{3}
-	BlockHeaderKeyPrefix  = []byte{4}
+	ShareKeyPrefix        = []byte{4}
+	BlockHeaderKeyPrefix  = []byte{5}
 )
+
+type Share struct {
+	ShareChainId   uint8      `json:"shareChainId"`
+	Witness        bool       `json:"witness"`
+	Version        int32      `json:"version"`
+	PrevBlock      types.Hash `json:"prevBlock"`
+	MerkleRoot     types.Hash `json:"merkleRoot"`
+	Timestamp      uint32     `json:"timestamp"`
+	Nonce          uint32     `json:"nonce"`
+	Proof          types.Hash `json:"proof"`
+	Prooff         types.Hash `json:"prooff"`
+	Proofff        types.Hash `json:"proofff"`
+	Prooffff       types.Hash `json:"prooffff"`
+	AdditionalData types.Hash `json:"additionalData"`
+}
 
 type MergeMiningInfoVariable struct {
 	// Administrator address
@@ -163,21 +209,21 @@ func GetMergeMiningInfoVariableVariable(context db.DB) (*MergeMiningInfoVariable
 }
 
 type ShareChainInfoVariable struct {
-	Id               uint32   `json:"id"`
-	Difficulty       *big.Int `json:"difficulty"`
-	RewardMultiplier uint32   `json:"rewardMultiplier"`
+	Id               uint8  `json:"id"`
+	Bits             uint32 `json:"bits"`
+	RewardMultiplier uint32 `json:"rewardMultiplier"`
 }
 
-func GetShareChainKey(id uint32) []byte {
+func GetShareChainKey(id uint8) []byte {
 	idBytes := make([]byte, 4)
-	binary.LittleEndian.PutUint32(idBytes, id)
+	idBytes[3] = id
 	return common.JoinBytes(ShareChainInfoPrefix, idBytes)
 }
 
 func (s *ShareChainInfoVariable) Save(context db.DB) error {
 	data, err := ABIMergeMining.PackVariable(
 		shareChainInfoVariableName,
-		s.Difficulty,
+		s.Bits,
 		s.RewardMultiplier,
 	)
 	if err != nil {
@@ -199,7 +245,7 @@ func parseShareChainInfoVariable(data []byte) (*ShareChainInfoVariable, error) {
 		return nil, constants.ErrDataNonExistent
 	}
 }
-func GetShareChainInfoVariableVariable(context db.DB, id uint32) (*ShareChainInfoVariable, error) {
+func GetShareChainInfoVariableVariable(context db.DB, id uint8) (*ShareChainInfoVariable, error) {
 	if data, err := context.Get(GetShareChainKey(id)); err != nil {
 		return nil, err
 	} else {

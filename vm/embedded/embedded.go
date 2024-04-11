@@ -52,6 +52,7 @@ func getMergeMining() map[types.Address]*embeddedImplementation {
 			cabi.ChangeTssECDSAPubKeyMethodName:         &implementation.ChangeTssECDSAPubKeyMergeMiningMethod{cabi.ChangeTssECDSAPubKeyMethodName},
 			cabi.ChangeAdministratorMethodName:          &implementation.ChangeAdministratorMergeMiningMethod{cabi.ChangeAdministratorMethodName},
 			cabi.SetMergeMiningMetadataMethodName:       &implementation.SetMergeMiningMetadataMethod{cabi.SetMergeMiningMetadataMethodName},
+			cabi.AddShareMethodName:                     &implementation.AddShareMethod{cabi.AddShareMethodName},
 		},
 		cabi.ABIMergeMining,
 	}

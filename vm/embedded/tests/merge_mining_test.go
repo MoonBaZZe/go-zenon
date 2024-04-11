@@ -1,7 +1,15 @@
 package tests
 
 import (
+	"bytes"
+	"crypto/rand"
 	"fmt"
+	"github.com/consensys/gnark-crypto/accumulator/merkletree"
+	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark-crypto/hash"
+	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/test"
+	common2 "github.com/ethereum/go-ethereum/common"
 	g "github.com/zenon-network/go-zenon/chain/genesis/mock"
 	"github.com/zenon-network/go-zenon/chain/nom"
 	"github.com/zenon-network/go-zenon/common"
@@ -205,8 +213,8 @@ func mergeMiningStep3(t *testing.T, z mock.MockZenon) {
 func mergeMiningStep4(t *testing.T, z mock.MockZenon) {
 	mergeMiningStep3(t, z)
 
-	id := uint32(1)
-	difficulty := big.NewInt(10000)
+	id := uint8(1)
+	difficulty := uint32(386097875)
 	rewardMultiplier := uint32(1)
 
 	mergeMiningAPI := embedded.NewMergeMiningApi(z)
@@ -217,11 +225,17 @@ func mergeMiningStep4(t *testing.T, z mock.MockZenon) {
 	common.Json(mergeMiningAPI.GetShareChainInfo(1)).Equals(t, `
 {
 	"id": 1,
-	"difficulty": 10000,
+	"bits": 386097875,
 	"rewardMultiplier": 1
 }`)
 }
 
+// Activate spork
+// Sets guardians
+// Sets tss ecdsa public key
+// Initialize starting block
+// Set share chain info
+// Add the next block header
 func mergeMiningStep5(t *testing.T, z mock.MockZenon) {
 	mergeMiningStep4(t, z)
 
@@ -264,12 +278,106 @@ func mergeMiningStep5(t *testing.T, z mock.MockZenon) {
 }`)
 }
 
+// Activate spork
+// Sets guardians
+// Sets tss ecdsa public key
+// Initialize starting block
+// Set share chain info
+// Add the next block header
+// Add a share to share id 1
+func mergeMiningStep6(t *testing.T, z mock.MockZenon) {
+	mergeMiningStep5(t, z)
+
+	data := []byte("abcdef")
+	additionalData := common2.LeftPadBytes(data, 32)
+	share := definition.Share{
+		ShareChainId:   1,
+		Version:        536928256,
+		PrevBlock:      types.HexToHashPanic("000000000000000000000142eb893b9b422b5cf60ab352c9a8a2166f0c33c3d2"),
+		MerkleRoot:     types.HexToHashPanic("2a3bfcafb862755d613d95bcefb7fea39e6afabf6f2f6f50c9de7413b9971e67"),
+		Timestamp:      1712576075,
+		Nonce:          1999714395,
+		Proof:          types.ZeroHash,
+		Prooff:         types.ZeroHash,
+		Proofff:        types.ZeroHash,
+		Prooffff:       types.ZeroHash,
+		AdditionalData: types.NewHash(additionalData),
+	}
+
+	defer z.CallContract(addShare(g.User5.Address, share)).Error(t, nil)
+	insertMomentums(z, 2)
+
+	//mergeMiningAPI := embedded.NewMergeMiningApi(z)
+	//common.Json(mergeMiningAPI.GetHeaderChainInfo()).Equals(t, ``)
+	//
+	//common.Json(mergeMiningAPI.GetBlockHeader(blockHash)).Equals(t, ``)
+}
+
 func TestMergeMining(t *testing.T) {
 	z := mock.NewMockZenonWithCustomEpochDuration(t, time.Hour)
 	defer z.StopPanic()
 	//defer z.SaveLogs(common.EmbeddedLogger).Equals(t, ``)
 
-	mergeMiningStep5(t, z)
+	mergeMiningStep6(t, z)
+}
+
+func TestSimpleMerkleTree(t *testing.T) {
+	assert := test.NewAssert(t)
+	mod := ecc.BN254.ScalarField()
+	modNbBytes := len(mod.Bytes())
+	fmt.Printf("modNbBytes: %d\n", modNbBytes)
+	// Create a Merkle Proof to test with
+	hasher := hash.MIMC_BN254
+	hGo := hasher.New()
+	nrLeaves := 15
+	proofIndex := uint64(0)
+	var l []byte
+	depth := 4
+
+	var buf bytes.Buffer
+	for i := 0; i < nrLeaves; i++ {
+		leaf, err := rand.Int(rand.Reader, mod)
+		assert.NoError(err)
+		b := leaf.Bytes()
+		if i == int(proofIndex) {
+			l = b
+			fmt.Printf("leaf len: %d\n", len(l))
+			fmt.Printf("leaf: %s\n", leaf.String())
+		}
+		buf.Write(make([]byte, modNbBytes-len(b)))
+		buf.Write(b)
+	}
+	// Create proof
+	merkleRoot, proofPath, numLeaves, err := merkletree.BuildReaderProof(&buf, hGo, modNbBytes, proofIndex)
+	if err != nil {
+		t.Fatal("error creating Merkle Proof")
+	}
+	// Check proof
+	fmt.Printf("len(merkleRoot): %d\n", len(merkleRoot))
+	fmt.Printf("len(proofPath): %d\n", len(proofPath))
+	//for _, p := range proofPath {
+	//	fmt.Printf("len(proof): %d\n", len(p))
+	//}
+
+	verified := merkletree.VerifyProof(hGo, merkleRoot, proofPath, proofIndex, numLeaves)
+	if !verified {
+		t.Fatal("The created Merkle Proof is not valid")
+	}
+	fmt.Printf("After proof\n")
+	// Check proof in circuit
+	var mtCircuit common.MTCircuit
+	var witness common.MTCircuit
+	mtCircuit.ProofElements = make([]frontend.Variable, depth)
+	witness.ProofElements = make([]frontend.Variable, depth)
+	// skip elm 0 (in proofPath) since it's the leaf hash and we calculate it ourselves
+	for i := 0; i < depth; i++ {
+		witness.ProofElements[i] = proofPath[i+1]
+	}
+	witness.ProofIndex = proofIndex
+	witness.Root = merkleRoot
+	witness.Leaf = proofPath[0]
+	fmt.Printf("Before prover succeeded\n")
+	assert.ProverSucceeded(&mtCircuit, &witness, test.WithCurves(ecc.BN254))
 }
 
 func setInitialBitcoinBlockHeader(from types.Address, blockHeader definition.BlockHeaderVariable) *nom.AccountBlock {
@@ -311,7 +419,7 @@ func addBitcoinBlockHeader(from types.Address, blockHeader definition.BlockHeade
 	}
 }
 
-func setShareChainStep(administrator types.Address, id uint32, difficulty *big.Int, rewardMultiplier uint32) *nom.AccountBlock {
+func setShareChainStep(administrator types.Address, id uint8, bits uint32, rewardMultiplier uint32) *nom.AccountBlock {
 	return &nom.AccountBlock{
 		Address:       administrator,
 		ToAddress:     types.MergeMiningContract,
@@ -319,22 +427,44 @@ func setShareChainStep(administrator types.Address, id uint32, difficulty *big.I
 		Amount:        big.NewInt(0),
 		Data: definition.ABIMergeMining.PackMethodPanic(definition.SetShareChainMethodName,
 			id,
-			difficulty,
+			bits,
 			rewardMultiplier,
 		),
 	}
 }
 
-func setShareChain(t *testing.T, z mock.MockZenon, administrator types.Address, id uint32, difficulty *big.Int, rewardMultiplier uint32, delay uint64) {
-	defer z.CallContract(setShareChainStep(administrator, id, difficulty, rewardMultiplier)).Error(t, nil)
+func setShareChain(t *testing.T, z mock.MockZenon, administrator types.Address, id uint8, bits uint32, rewardMultiplier uint32, delay uint64) {
+	defer z.CallContract(setShareChainStep(administrator, id, bits, rewardMultiplier)).Error(t, nil)
 	insertMomentums(z, 2)
 
 	frMom, err := z.Chain().GetFrontierMomentumStore().GetFrontierMomentum()
 	common.DealWithErr(err)
 	z.InsertMomentumsTo(frMom.Height + delay + 2)
 
-	defer z.CallContract(setShareChainStep(administrator, id, difficulty, rewardMultiplier)).Error(t, nil)
+	defer z.CallContract(setShareChainStep(administrator, id, bits, rewardMultiplier)).Error(t, nil)
 	insertMomentums(z, 2)
+}
+
+func addShare(from types.Address, share definition.Share) *nom.AccountBlock {
+	return &nom.AccountBlock{
+		Address:       from,
+		ToAddress:     types.MergeMiningContract,
+		TokenStandard: types.ZnnTokenStandard,
+		Amount:        big.NewInt(0),
+		Data: definition.ABIMergeMining.PackMethodPanic(definition.AddShareMethodName,
+			share.ShareChainId,
+			share.Version,
+			share.PrevBlock,
+			share.MerkleRoot,
+			share.Timestamp,
+			share.Nonce,
+			share.Proof,
+			share.Prooff,
+			share.Proofff,
+			share.Prooffff,
+			share.AdditionalData,
+		),
+	}
 }
 
 func nominateGuardiansStepMergeMining(administrator types.Address, guardians []types.Address) *nom.AccountBlock {
