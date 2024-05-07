@@ -116,10 +116,10 @@ var (
 	//MinAdministratorDelay        = uint64(2 * MomentumsPerEpoch) // main net
 	//MinSoftDelay                 = uint64(MomentumsPerEpoch)     // main net
 	//MinGuardians                 = 5                             // main net
-	MinUnhaltDurationInMomentums = uint64(MomentumsPerHour / 60)   // merge mining dev net
-	MinAdministratorDelay        = uint64(MomentumsPerHour / 60)   // merge mining dev net
-	MinSoftDelay                 = uint64(MomentumsPerEpoch / 120) // merge mining dev net
-	MinGuardians                 = 3                               // merge mining dev net
+	MinUnhaltDurationInMomentums = uint64(2) // merge mining dev net
+	MinAdministratorDelay        = uint64(2) // merge mining dev net
+	MinSoftDelay                 = uint64(2) // merge mining dev net
+	MinGuardians                 = 3         // merge mining dev net
 
 	DecompressedECDSAPubKeyLength = 65
 	CompressedECDSAPubKeyLength   = 33
