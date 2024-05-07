@@ -2,7 +2,7 @@ package genesis
 
 var (
 	embeddedGenesisStr = `{
-  "ChainIdentifier": 1,
+  "ChainIdentifier": 21,
   "ExtraData": "000000000000000000004dd040595540d43ce8ff5946eeaa403fb13d0e582d8f#We are all Satoshi#Don't trust. Verify",
   "SporkAddress": "z1qpxswrfnlll355wrx868xh58j7e2gu2n2u5czv",
   "GenesisTimestampSec": 1637755200,
