@@ -94,7 +94,7 @@ var (
 
 	/// === Merge Mining constants ===
 
-	InitialMergeMiningAdministrator = types.ParseAddressPanic("z1qr9vtwsfr2n0nsxl2nfh6l5esqjh2wfj85cfq9")
+	InitialMergeMiningAdministrator = types.ParseAddressPanic("z1qz8q0x3rs36z2kw8eltf8r323hlcn64jnujkuz")
 
 	// bigOne is 1 represented as a big.Int.  It is defined here to avoid
 	// the overhead of creating it multiple times.
@@ -110,12 +110,16 @@ var (
 
 	/// === Bridge constants ===
 
-	InitialBridgeAdministrator   = types.ParseAddressPanic("z1qr9vtwsfr2n0nsxl2nfh6l5esqjh2wfj85cfq9")
-	MaximumFee                   = uint32(10000)
-	MinUnhaltDurationInMomentums = uint64(6 * MomentumsPerHour)  //main net
-	MinAdministratorDelay        = uint64(2 * MomentumsPerEpoch) // main net
-	MinSoftDelay                 = uint64(MomentumsPerEpoch)     // main net
-	MinGuardians                 = 5                             // main net
+	InitialBridgeAdministrator = types.ParseAddressPanic("z1qr9vtwsfr2n0nsxl2nfh6l5esqjh2wfj85cfq9")
+	MaximumFee                 = uint32(10000)
+	//MinUnhaltDurationInMomentums = uint64(6 * MomentumsPerHour)  //main net
+	//MinAdministratorDelay        = uint64(2 * MomentumsPerEpoch) // main net
+	//MinSoftDelay                 = uint64(MomentumsPerEpoch)     // main net
+	//MinGuardians                 = 5                             // main net
+	MinUnhaltDurationInMomentums = uint64(MomentumsPerHour / 60)   // merge mining dev net
+	MinAdministratorDelay        = uint64(MomentumsPerHour / 60)   // merge mining dev net
+	MinSoftDelay                 = uint64(MomentumsPerEpoch / 120) // merge mining dev net
+	MinGuardians                 = 3                               // merge mining dev net
 
 	DecompressedECDSAPubKeyLength = 65
 	CompressedECDSAPubKeyLength   = 33
