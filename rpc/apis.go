@@ -100,7 +100,7 @@ func getApi(z zenon.Zenon, p2p *p2p.Server, apiModule string) []rpc.API {
 			{
 				Namespace: "embedded.merge_mining",
 				Version:   "1.0",
-				Service:   embedded.NewLiquidityApi(z),
+				Service:   embedded.NewMergeMiningApi(z),
 				Public:    true,
 			},
 		}
